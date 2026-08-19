@@ -35,6 +35,7 @@ one, or split one real site into several duplicate entities.
 | type of waterpoint: "other" free text (if Fulcrum captured it) | `waterpoint_type_other` | |
 | natural or artificial  | `water_origin`          | `natural` / `artificial` |
 | native title area      | `native_title_area`     | see NTA mapping below — this field likely doesn't exist in Fulcrum at all and will need to be back-filled by cross-referencing site locations against `../shared-taxonomy/taxonomy/native_title_areas.csv` / `property_nta_overlap.csv`, not copied from an existing column |
+| property (pastoral station) | `property`       | stores the `property_id` mnemonic (e.g. `PROP-YM`), not a free-text name — see property mapping below. Like NTA, this likely doesn't exist in Fulcrum as a clean column and needs back-filling from `../shared-taxonomy/taxonomy/properties.csv`, cross-referenced against site location |
 
 **Waterpoint type value mapping** (Fulcrum label → this app's slug):
 
@@ -48,6 +49,32 @@ one, or split one real site into several duplicate entities.
 | Waterhole | `waterhole` |
 | Soak or spring | `soak_or_spring` |
 | other | `other` |
+
+**Property value mapping** (station name → `property_id`, per `../shared-taxonomy/taxonomy/properties.csv`):
+
+| Station name | `property_id` |
+|---|---|
+| Frazier Downs Station | `PROP-FDS` |
+| Shamrock Station | `PROP-SHAMS` |
+| Anna Plains Station | `PROP-APS` |
+| Nita Downs Station | `PROP-NDS` |
+| Shamrock Gardens | `PROP-SHAMG` |
+| Shelamar Station | `PROP-SHEL` |
+| Roebuck Plains Station | `PROP-RPS` |
+| Dampier Downs | `PROP-DD` |
+| Liveringa | `PROP-LIV` |
+| Myroodah | `PROP-MYR` |
+| Yakka Munga | `PROP-YM` |
+| Yeeda | `PROP-YEE` |
+| *(unknown/not on a mapped property)* | `none` |
+
+The last five rows plus the Roebuck Plains alias were added to `properties.csv` specifically to
+cover this migration's source data — that catalog previously only had stations further north/east
+(Karajarri/Nyangumarta country) and didn't include these Fitzroy Valley stations at all. If
+`sites_for_central_upload.csv`-style exports use plain station names (as this migration's did)
+rather than `property_id` codes, map them through this table (and extend `properties.csv` first,
+via PR, for any station not yet listed) before uploading — don't invent new codes ad hoc per
+import.
 
 ### Survey-level (Fulcrum) → `toad_detection_survey` submission fields
 
@@ -75,21 +102,40 @@ one, or split one real site into several duplicate entities.
    complete record's site fields as one row, with the entity `label` set to `site_name` (or
    `"lat, lon"` if blank) to match this app's convention. This is an *admin* action using a
    Central web-user session, not the field app's app-user-scoped OpenRosa path — appropriate here
-   since it's a one-off bulk load, not routine field submission. Note down the UUID Central assigns
-   each entity (or generate your own UUIDs up front and include them in the upload, if your Central
-   version's bulk-CSV supports specifying entity IDs — check the version you're running).
+   since it's a one-off bulk load, not routine field submission.
+
+   **Confirmed against a live Central 2026.x**: this upload only accepts `label` plus one column
+   per declared entity property, headers matching exactly (including order) the property order
+   `toad_detection_survey.xlsx`'s survey sheet declares via `save_to` — no ID column. Central
+   assigns each entity's own UUID at creation; there is no way to supply your own through this
+   path. That means whatever placeholder site UUID you used to build step 4's submissions (before
+   any entity existed to reference) is *not* the entity's real ID, and has to be reconciled
+   afterwards: download the resulting entity list from that dataset's page in Central's UI once
+   the upload's done, and match it back to your placeholder IDs by **coordinates**, not label —
+   this migration's `label`s aren't reliably unique (site-name clustering was dropped, see the
+   note above the `PROXIMITY_THRESHOLD_M` constant, so two genuinely different sites can share a
+   name like "Dam") — see
+   `invasion-front-monitoring/src/fulcrum-migration/apply-entity-id-crosswalk.R`, which does
+   exactly this (exact-coordinate match first, falling back to nearest-within-150m, refusing to
+   guess on anything ambiguous) and rewrites the affected submission XML in place — run it before
+   step 4's POSTs go out, not after.
 4. **Create the historical submissions** — for each Fulcrum row, build a submission XML using the
    same shape as `buildSubmissionXml()` in `toad-monitoring-app.html`, with:
    - `is_new_site` = `no` for every row (the entities already exist from step 3 — don't recreate
      them from historical visit records too),
-   - `site_id` = that row's cluster's entity UUID from step 3,
+   - `site_id` = that row's cluster's entity's **real** ID — the placeholder UUID rewritten to
+     Central's assigned ID per step 3's crosswalk, not the placeholder itself,
    - the survey fields per the mapping table above,
    - a freshly generated `instanceID` (these are historical records being imported now, not
      literally resubmitted from the original device).
-   POST each one to the form's submission endpoint (`POST
-   /v1/projects/:id/forms/toad_detection_survey/submissions` with a web-user/API token, or the same
-   OpenRosa `xml_submission_file` endpoint the app itself uses) via a small script — this is
-   genuinely mechanical once steps 1–3 are settled, unlike the clustering step.
+   POST each one to the form's submission endpoint — note the URL is keyed on the form's
+   *xmlFormId*, `toad_detection_survey`, not its display title "Cane Toad Detection Survey".
+   `invasion-front-monitoring/src/fulcrum-migration/upload-submissions.R` does this: logs in as a
+   web user (`POST /v1/sessions`) and POSTs each file's raw XML to `POST
+   /v1/projects/:id/forms/toad_detection_survey/submissions`. Test it against 1-2 records first
+   (its `CENTRAL_UPLOAD_LIMIT` env var) and confirm they land against the right entity in Central's
+   UI before uploading the full batch — this raw-XML REST path hasn't been verified against a live
+   Central, unlike the entity-upload behaviour in step 3, which has.
 5. **Spot-check** a handful of imported sites in the app itself (or via Central's UI) — confirm a
    site that should have multiple historical visits shows up once as an entity with several
    submissions against it, not several near-duplicate entities.
@@ -103,4 +149,9 @@ one, or split one real site into several duplicate entities.
 - Whether Fulcrum recorded anything usable for `native_title_area` (a governance-relevant field
   that predates this app and Fulcrum both) or whether it must be entirely back-filled from
   `../shared-taxonomy`.
+- Whether Fulcrum recorded a usable `property` (pastoral station) field, or whether it must be
+  entirely back-filled from a spatial join against station boundaries, same as `native_title_area`
+  — and whether every station touched by the real export is already in
+  `../shared-taxonomy/taxonomy/properties.csv` (extend it via PR first if not, per the property
+  mapping table above).
 - Whether temperature was recorded in °C consistently.

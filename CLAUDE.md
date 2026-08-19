@@ -39,10 +39,14 @@ If you edit `toad_detection_survey.xlsx`, re-validate it rather than trusting th
 pip install pyxform   # in a throwaway venv — don't touch the system Python
 xls2xform toad_detection_survey.xlsx /tmp/check.xml
 ```
-A clean "Conversion complete!" means pyxform and ODK Validate both accepted it. This project has no
-live ODK Central instance to test submissions against, so this compile check is the only automated
-guardrail there is — treat a validation failure as a real bug, and treat a pass as "structurally
-legal," not "definitely matches what Central expects at runtime."
+A clean "Conversion complete!" means pyxform and ODK Validate both accepted it. This compile check
+is the only *automated* guardrail in this repo, so treat a validation failure as a real bug and a
+pass as "structurally legal," not "definitely matches what Central expects at runtime." A live
+Central project now exists (the Fulcrum migration uploaded historical sites/submissions to it —
+see "Entities: what's verified vs. assumed" below and `FULCRUM_MIGRATION.md`), which has verified
+some runtime behaviour empirically, but that was exercised via web-user REST calls from migration
+scripts, not this app's own app-user OpenRosa path — see that section for exactly what remains
+unverified end-to-end through the app itself.
 
 ## Architecture
 
@@ -125,21 +129,39 @@ Validate passed): the XLSForm itself is structurally legal, and the instance XML
 update="false" baseVersion="" trunkVersion="" branchId="" id="...">` attributes, the `<label>`
 child) matches what that XLSForm compiles to.
 
-**Not verified** (no live ODK Central project was available while building this) — check these
-against a real Central project before relying on the app in the field:
-- That Central actually auto-attaches `toad_monitoring_sites.csv` to this form's manifest for
-  **app users** specifically (vs. only for web-user/Collect-authenticated sessions) — this may
-  require an explicit admin step in Central's project settings that isn't visible from the
-  XLSForm alone.
-- That posting `baseVersion=""`/`trunkVersion=""`/`branchId=""` (rather than omitting the
-  attributes, or some other placeholder) is accepted for a plain reference (`update="false"`) to
-  an existing entity — these attributes exist for conflict-safe *updates*, which this app never
-  does, but Central's submission parser may still validate their presence/format.
-- That creating an entity via a bare OpenRosa `xml_submission_file` POST (no ODK Collect involved)
-  is accepted the same way it would be from Collect — the entities feature was built and is
-  primarily tested against Collect's submission path.
+Verified against a **live Central 2026.x** by the Fulcrum migration (see `FULCRUM_MIGRATION.md`;
+scripts in `../invasion-front-monitoring/src/fulcrum-migration/`): posting
+`baseVersion=""`/`trunkVersion=""`/`branchId=""` on a plain `update="false"` reference to an
+existing entity *is* accepted — 78 of 80 historical submissions built in exactly
+`buildSubmissionXml()`'s shape (`create="false" update="false"`, referencing a real entity `id`)
+were accepted by Central with `200`; the other 2 were `409` duplicate-`instanceID` conflicts from a
+re-run, not shape/validation rejections. That resolves the second bullet below. It does **not**
+resolve the first or third bullets: the migration authenticated as a **web user** and posted to
+Central's REST endpoint (`POST /v1/projects/:id/forms/:xmlFormId/submissions`), not this app's
+app-user-scoped OpenRosa `xml_submission_file` path, and it created entities via Central's bulk
+"Upload CSV" dataset page (an admin/web-user action), never via a submission's `create="true"` —
+so the app's own `is_new_site='yes'` create path is still unexercised against a live Central.
 
-If any of these turn out to be wrong, the fix is almost certainly local to `buildSubmissionXml()`
+One more thing the migration surfaced: Central's **entity-list CSV download** (from a dataset's
+page in the Central UI) is a *different* shape from the CSV Central auto-attaches to a form's
+manifest for `select_one_from_file` — it uses `__id` (plus `__createdAt`/`__creatorId`/
+`__updates`/etc.) as the identity/system columns, whereas the manifest-attached CSV this app's own
+`siteFromCsvRow()` parses uses `name` (see `toad-monitoring-app.html`'s `siteFromCsvRow()`, and the
+`id_col_candidates` comment in `apply-entity-id-crosswalk.R`). Don't assume a script or doc talking
+about one CSV's columns applies to the other.
+
+**Still not verified** — check these against a real Central project (ideally via an actual app-user
+session) before trusting them in the field:
+- That Central actually auto-attaches `toad_monitoring_sites.csv` to this form's manifest for
+  **app users** specifically (vs. only for web-user/Collect-authenticated sessions, or the
+  dataset-page CSV download the migration used) — this may require an explicit admin step in
+  Central's project settings that isn't visible from the XLSForm alone.
+- That creating an entity via a bare OpenRosa `xml_submission_file` POST with `create="true"` (no
+  ODK Collect, no web-user REST call involved) is accepted the same way it would be from Collect —
+  the migration always created entities via Central's bulk CSV upload instead, so this app's own
+  new-site registration path (`is_new_site='yes'`) has never been exercised against a live Central.
+
+If either of these turn out to be wrong, the fix is almost certainly local to `buildSubmissionXml()`
 and/or the `entities` sheet — the rest of the app (sync queue, offline storage, timer) doesn't need
 to know or care how entity creation works under the hood.
 
@@ -165,6 +187,16 @@ submitted value is the NTA's mnemonic `nta_id`, not a display label, so it joins
 that table downstream. (The goanna app's own copy of this list has drifted — its `#cfgNta` dropdown
 is missing YWR/NML even though its CLAUDE.md claims otherwise — this app's copy was taken directly
 from the current CSV to start clean.)
+
+Property (pastoral station) is likewise a site property, added when migrating historical Fulcrum
+data (see "Fulcrum migration" below). The `property_choices` list in `toad_detection_survey.xlsx`
+and the `#newSiteProperty` `<select>` in the HTML are a hand-copied snapshot of
+`../shared-taxonomy/taxonomy/properties.csv` — that repo is the authoritative source; re-sync both
+places if it changes. The submitted value is the property's mnemonic `property_id` (e.g.
+`PROP-YM`), not a display label. `properties.csv` previously only covered Karajarri/Nyangumarta-area
+stations; five Fitzroy Valley stations (Dampier Downs, Liveringa, Myroodah, Yakka Munga, Yeeda) were
+added there to cover the Fulcrum migration's source sites — see `FULCRUM_MIGRATION.md`'s property
+mapping table before assuming a station name in a new import already has a code.
 
 ## Fulcrum migration
 

@@ -399,6 +399,37 @@
     cursor: pointer;
   }
   #confirmSiteBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .saveRow {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .saveRow #saveBtn {
+    flex: 2;
+    margin-top: 0;
+  }
+  #discardBtn {
+    flex: 1;
+    padding: 14px;
+    border-radius: 9px;
+    border: 1.5px solid var(--err);
+    background: #fff;
+    color: var(--err);
+    font-size: 18px;
+    cursor: pointer;
+  }
+  #discardSheet #continueTimingBtn, #discardSheet #resetTimerBtn {
+    width: 100%;
+    margin-top: 12px;
+    padding: 14px;
+    border-radius: 9px;
+    border: none;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  #continueTimingBtn { background: var(--ok); color: #fff; }
+  #resetTimerBtn { background: var(--err); color: #fff; }
   .settingsNote {
     font-size: 11.5px;
     color: var(--muted);
@@ -599,6 +630,25 @@
           <option value="NTA-NML">Nyamal</option>
         </select>
       </div>
+
+      <div class="field">
+        <label>Property</label>
+        <select id="newSiteProperty">
+          <option value="none">Not on a known property</option>
+          <option value="PROP-FDS">Frazier Downs Station</option>
+          <option value="PROP-SHAMS">Shamrock Station</option>
+          <option value="PROP-APS">Anna Plains Station</option>
+          <option value="PROP-NDS">Nita Downs Station</option>
+          <option value="PROP-SHAMG">Shamrock Gardens</option>
+          <option value="PROP-SHEL">Shelamar Station</option>
+          <option value="PROP-RPS">Roebuck Plains Station</option>
+          <option value="PROP-DD">Dampier Downs</option>
+          <option value="PROP-LIV">Liveringa</option>
+          <option value="PROP-MYR">Myroodah</option>
+          <option value="PROP-YM">Yakka Munga</option>
+          <option value="PROP-YEE">Yeeda</option>
+        </select>
+      </div>
     </div>
 
     <button id="confirmSiteBtn">Use this site</button>
@@ -646,7 +696,20 @@
       <textarea id="notesInput" rows="3" placeholder="Optional"></textarea>
     </div>
 
-    <button id="saveBtn">Save record</button>
+    <div class="saveRow">
+      <button id="saveBtn">Save record</button>
+      <button id="discardBtn" aria-label="Discard record" title="Discard record">🗑</button>
+    </div>
+  </div>
+</div>
+
+<!-- Discard confirm sheet -->
+<div class="overlay" id="discardOverlay">
+  <div class="sheet" id="discardSheet">
+    <h3>Discard this search?</h3>
+    <div class="sub">You can keep timing from where you stopped, or reset the timer and discard this record.</div>
+    <button id="continueTimingBtn">Continue timing</button>
+    <button id="resetTimerBtn">Reset timer — discard record</button>
   </div>
 </div>
 
@@ -727,6 +790,21 @@
     'NTA-NY': 'Nyangumarta',
     'NTA-YWR': 'Yawuru',
     'NTA-NML': 'Nyamal'
+  };
+  const PROPERTY_LABELS = {
+    none: 'Not on a known property',
+    'PROP-FDS': 'Frazier Downs Station',
+    'PROP-SHAMS': 'Shamrock Station',
+    'PROP-APS': 'Anna Plains Station',
+    'PROP-NDS': 'Nita Downs Station',
+    'PROP-SHAMG': 'Shamrock Gardens',
+    'PROP-SHEL': 'Shelamar Station',
+    'PROP-RPS': 'Roebuck Plains Station',
+    'PROP-DD': 'Dampier Downs',
+    'PROP-LIV': 'Liveringa',
+    'PROP-MYR': 'Myroodah',
+    'PROP-YM': 'Yakka Munga',
+    'PROP-YEE': 'Yeeda'
   };
 
   function newId() {
@@ -858,6 +936,7 @@
       waterpoint_type_other: row.waterpoint_type_other || '',
       water_origin: row.water_origin || '',
       native_title_area: row.native_title_area || 'none',
+      property: row.property || 'none',
       source: 'remote'
     };
   }
@@ -900,6 +979,7 @@
           waterpoint_type_other: r.waterpoint_type_other || '',
           water_origin: r.water_origin || '',
           native_title_area: r.native_title_area || 'none',
+          property: r.property || 'none',
           source: r.status === 'synced' ? 'remote' : 'local'
         });
       }
@@ -931,6 +1011,7 @@
     $('waterpointOtherText').classList.add('hidden');
     document.querySelectorAll('.originBtn').forEach(b => b.classList.remove('active'));
     $('newSiteNta').value = 'none';
+    $('newSiteProperty').value = 'none';
     renderSiteList();
     updateConfirmSiteState();
     $('siteOverlay').classList.add('show');
@@ -968,6 +1049,7 @@
       const badges = [];
       if (s.waterpoint_type.length) badges.push(s.waterpoint_type.map(w => WATERPOINT_LABELS[w] || w).join(', '));
       if (s.native_title_area && s.native_title_area !== 'none') badges.push(NTA_LABELS[s.native_title_area] || s.native_title_area);
+      if (s.property && s.property !== 'none') badges.push(PROPERTY_LABELS[s.property] || s.property);
       const coords = (s.latitude != null && s.longitude != null) ? s.latitude.toFixed(4) + ', ' + s.longitude.toFixed(4) : '';
       return `
       <div class="siteRow ${s.id === selectedExistingSiteId ? 'selected' : ''}" data-id="${escXml(s.id)}">
@@ -1048,7 +1130,8 @@
         waterpoint_type: site.waterpoint_type,
         waterpoint_type_other: site.waterpoint_type_other,
         water_origin: site.water_origin,
-        native_title_area: site.native_title_area
+        native_title_area: site.native_title_area,
+        property: site.property
       };
     } else {
       const originBtn = document.querySelector('.originBtn.active');
@@ -1061,7 +1144,8 @@
         waterpoint_type: Array.from(document.querySelectorAll('.wpChk:checked')).map(c => c.value),
         waterpoint_type_other: $('waterpointOtherText').value.trim(),
         water_origin: originBtn ? originBtn.dataset.val : '',
-        native_title_area: $('newSiteNta').value
+        native_title_area: $('newSiteNta').value,
+        property: $('newSiteProperty').value
       };
     }
     $('siteOverlay').classList.remove('show');
@@ -1188,6 +1272,7 @@
       waterpoint_type_other: currentSite.waterpoint_type_other,
       water_origin: currentSite.water_origin,
       native_title_area: currentSite.native_title_area,
+      property: currentSite.property,
       visit_date: visitStarted.date,
       visit_time: visitStarted.time,
       temperature_c: $('temperatureInput').value.trim() !== '' ? +$('temperatureInput').value : null,
@@ -1210,6 +1295,31 @@
     // A freshly-registered site now has a real survey record backing it — leave the site
     // selected so the crew can immediately queue a second search at the same site if needed;
     // "Change site" is always available to move on.
+  });
+
+  $('discardBtn').addEventListener('click', () => {
+    $('discardOverlay').classList.add('show');
+  });
+
+  $('continueTimingBtn').addEventListener('click', () => {
+    $('discardOverlay').classList.remove('show');
+    $('overlay').classList.remove('show');
+    running = true;
+    startTs = Date.now() - lastElapsedMs;
+    $('bigBtn').textContent = 'Stop search';
+    $('bigBtn').classList.add('running');
+    $('ring').classList.add('running');
+    $('ringLabel').textContent = 'searching…';
+    $('hintText').textContent = 'Hit stop once the search ends (toad found or not).';
+    tick();
+    tickHandle = setInterval(tick, 250);
+  });
+
+  $('resetTimerBtn').addEventListener('click', () => {
+    $('discardOverlay').classList.remove('show');
+    $('overlay').classList.remove('show');
+    lastElapsedMs = 0;
+    $('elapsed').textContent = '00:00';
   });
 
   function foundBadgeClass(rec) {
@@ -1281,6 +1391,9 @@
   });
   $('settingsOverlay').addEventListener('click', (e) => {
     if (e.target === $('settingsOverlay')) $('settingsOverlay').classList.remove('show');
+  });
+  $('discardOverlay').addEventListener('click', (e) => {
+    if (e.target === $('discardOverlay')) $('discardOverlay').classList.remove('show');
   });
 
   // ---------- QR code scanning (Central app user code) ----------
@@ -1372,6 +1485,7 @@
   <waterpoint_type_other>${escXml(rec.waterpoint_type_other || '')}</waterpoint_type_other>
   <water_origin>${escXml(rec.water_origin || '')}</water_origin>
   <native_title_area>${escXml(rec.native_title_area || '')}</native_title_area>
+  <property>${escXml(rec.property || '')}</property>
   <visit_date>${escXml(rec.visit_date)}</visit_date>
   <visit_time>${escXml(rec.visit_time)}</visit_time>
   <temperature_c>${rec.temperature_c != null ? rec.temperature_c : ''}</temperature_c>
