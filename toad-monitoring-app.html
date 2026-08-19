@@ -943,8 +943,11 @@
 
   async function fetchSiteList() {
     if (!settings.submissionUrl) throw new Error('Set up your app user code first (tap ⚙).');
+    // Central rejects OpenRosa requests (formList/manifest/submission) with 400 unless this
+    // header is present — see submitOne()'s identical header on the submission POST.
+    const openRosaHeaders = { 'X-OpenRosa-Version': '1.0' };
     const manifestUrl = projectBaseUrl() + '/forms/' + FORM_ID + '/manifest';
-    const res = await fetch(manifestUrl);
+    const res = await fetch(manifestUrl, { headers: openRosaHeaders });
     if (!res.ok) throw new Error('Could not fetch form manifest (' + res.status + ').');
     const xml = new DOMParser().parseFromString(await res.text(), 'text/xml');
     const mediaFiles = Array.from(xml.getElementsByTagName('mediaFile'));
@@ -954,7 +957,7 @@
     });
     if (!match) throw new Error('This form has no ' + DATASET + '.csv attachment yet — has the dataset been created in Central?');
     const downloadUrl = match.getElementsByTagName('downloadUrl')[0].textContent.trim();
-    const csvRes = await fetch(downloadUrl);
+    const csvRes = await fetch(downloadUrl, { headers: openRosaHeaders });
     if (!csvRes.ok) throw new Error('Could not download the site list (' + csvRes.status + ').');
     const rows = parseCsv(await csvRes.text());
     sitesCache = { fetchedAt: Date.now(), sites: rows.map(siteFromCsvRow) };

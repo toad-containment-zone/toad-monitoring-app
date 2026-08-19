@@ -150,12 +150,21 @@ manifest for `select_one_from_file` — it uses `__id` (plus `__createdAt`/`__cr
 `id_col_candidates` comment in `apply-entity-id-crosswalk.R`). Don't assume a script or doc talking
 about one CSV's columns applies to the other.
 
-**Still not verified** — check these against a real Central project (ideally via an actual app-user
-session) before trusting them in the field:
-- That Central actually auto-attaches `toad_monitoring_sites.csv` to this form's manifest for
-  **app users** specifically (vs. only for web-user/Collect-authenticated sessions, or the
-  dataset-page CSV download the migration used) — this may require an explicit admin step in
-  Central's project settings that isn't visible from the XLSForm alone.
+Verified against a live Central 2026.x via an actual **app-user session** in the app itself (not a
+migration script): Central *does* auto-attach `toad_monitoring_sites.csv` to this form's manifest
+for app users — `fetchSiteList()`'s manifest fetch found and downloaded it correctly once one bug
+was fixed (see below). That resolves the first "still not verified" bullet below.
+
+That bug, now fixed: `fetchSiteList()`'s two `fetch()` calls (the manifest GET and the CSV
+download GET) sent no headers at all, so Central rejected the manifest request with `400`. Central
+requires `X-OpenRosa-Version: 1.0` on *every* OpenRosa request — formList/manifest/submission
+alike, GET or POST — "or the request will be rejected" (per
+[docs.getodk.org's OpenRosa Endpoints reference](https://docs.getodk.org/central-api-openrosa-endpoints/)).
+`submitOne()`'s submission POST already set this header; `fetchSiteList()`'s GETs now do too. If a
+future OpenRosa fetch is added to this app, give it the same header from the start rather than
+rediscovering this via a live 400.
+
+**Still not verified** — check this against a real Central project before trusting it in the field:
 - That creating an entity via a bare OpenRosa `xml_submission_file` POST with `create="true"` (no
   ODK Collect, no web-user REST call involved) is accepted the same way it would be from Collect —
   the migration always created entities via Central's bulk CSV upload instead, so this app's own
