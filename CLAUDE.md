@@ -33,6 +33,9 @@ There is no build step, package manager, linter, or test suite. "Running" the ap
 the directory statically (e.g. `python3 -m http.server`) and opening `toad-monitoring-app.html` —
 the service worker requires a real HTTP(S) origin (or `localhost`), so a static server is needed to
 test offline/install behaviour. Verify changes by opening it in a browser and exercising the flow.
+Don't just double-click the file open as a `file://` URL: besides the service worker not working
+there, the map view's OpenStreetMap basemap tiles will 403 ("referer is required by tile usage
+policy") since `file://` pages send no `Referer` header — the same static-server setup fixes both.
 
 If you edit `toad_detection_survey.xlsx`, re-validate it rather than trusting the workbook alone:
 ```
@@ -113,23 +116,82 @@ Organized into commented sections in the single `<script>` block (search for `//
    (`#overlay`: people searching, temperature, water access, toad found, notes) *before* the app
    knows which site this was. Tapping "Next: choose site" stashes those answers in a
    module-level `pendingSurvey` object (nothing's saved yet) and opens the site-select bottom sheet
-   (`#siteOverlay`, `openSiteSheet('finalize')`) — either an existing-site picker (search +
-   tap-to-select from `allKnownSites()`) or a new-site registration form (lat/lon — GPS-prefilled
-   *but manually editable*, unlike the goanna app's GPS-only capture, because site coordinates are
-   entered once and reused for years so it's worth letting a crew correct a bad GPS fix; site name;
-   waterpoint type checkboxes; natural/artificial toggle; native title area; property). Confirming
-   builds `currentSite`, merges it with `pendingSurvey`, and *that's* the point the record is
-   actually saved/queued — the app then resets to a fresh idle timer for the next visit. There's no
-   persistent "session" wrapper like goanna's hunting session: each site visit is one standalone
-   submission, matching the Fulcrum data model this app replaces (see "Fulcrum migration" below).
-   Backing out of the site sheet without confirming (backdrop tap) re-opens the survey-results
-   sheet rather than discarding the search — its field values are still intact since nothing clears
-   them until a site is actually confirmed.
+   (`#siteOverlay`, `openSiteSheet('finalize')`) — either an existing-site picker or a new-site
+   registration form (lat/lon — GPS-prefilled *but manually editable*, unlike the goanna app's
+   GPS-only capture, because site coordinates are entered once and reused for years so it's worth
+   letting a crew correct a bad GPS fix; site name; waterpoint type checkboxes; natural/artificial
+   toggle; native title area; property). Confirming builds `currentSite` (via `confirmExistingSite()`
+   for the existing-site path, shared by every UI that can produce a site id — the list row click and
+   the map marker popup's button both funnel through it), merges it with `pendingSurvey`, and *that's*
+   the point the record is actually saved/queued (`finishSiteConfirmation()`) — the app then resets to
+   a fresh idle timer for the next visit. There's no persistent "session" wrapper like goanna's
+   hunting session: each site visit is one standalone submission, matching the Fulcrum data model
+   this app replaces (see "Fulcrum migration" below). Backing out of the site sheet without confirming
+   (backdrop tap) re-opens the survey-results sheet rather than discarding the search — its field
+   values are still intact since nothing clears them until a site is actually confirmed.
 
    Separately, `#registerSiteBtn` on the main screen opens the same site sheet in
    `openSiteSheet('registerOnly')` mode (forced to "new site", existing-site tab hidden) for the
    day-trip site-registration shortcut described above — confirming there submits immediately with
    no timer/survey step at all.
+
+   **Existing-site picker: map-first, list as fallback.** Site names are often absent or ambiguous
+   ("Dam", a raw coordinate pair), so picking from a text list doesn't help a crew standing at a
+   physical waterpoint recognize whether it's already known — a map does. `#existingSitePanel`'s
+   primary action is `#viewMapBtn` ("View on map"), opening a dedicated full-screen overlay
+   (`#mapOverlay`, `openMapPicker()`) rather than embedding the map inside the bottom sheet — `.sheet`
+   is `overflow-y: auto`, and a draggable/pinch-zoomable map inside a container that also wants to
+   capture vertical scroll is a real gesture-conflict risk, so this follows the same full-screen
+   pattern already used for the QR camera view (`#scanOverlay`) instead. The original search+list UI
+   still exists, demoted behind an "or choose from a list" toggle (`#listPickerPanel`) as a safety net
+   if a device's GPS or map rendering misbehaves in the field — nothing about it changed except that
+   `renderSiteList()` now sorts by distance from the crew's current position (nearest first) and shows
+   that distance per row when a position is available, falling back to today's unsorted/no-distance
+   rendering otherwise (`haversineMeters()`/`formatDistance()`).
+
+   The map is vendored **Leaflet** (`L`), pasted inline the same way jsQR is (see "Notes for editing"
+   below) — chosen over hand-rolling pan/zoom/projection math because there's no test suite in this
+   repo to catch subtle bugs in that kind of code, and Leaflet ships a proper standalone
+   `leaflet.js`/`leaflet.css` distributable meant for exactly this kind of inclusion, so vendoring it
+   doesn't require adopting a build step. Tiles are OpenStreetMap's standard free tile servers
+   (`tile.openstreetmap.org`) — no signup, no API key, acceptable under OSM's usage policy for a small
+   field-crew app's request volume. Markers use `L.divIcon()` (small CSS circles, on-brand colors)
+   rather than Leaflet's default pin images: Leaflet infers its default icon path from its own
+   `<script src>`, which doesn't exist when the library has no `src` at all (pasted inline) — divIcon
+   sidesteps that gotcha entirely and needs no bundled marker image assets. **Online/offline is simply
+   "is the tile layer attached or not"** (`setMapTileLayer()`, hooked into the app's existing
+   `window.addEventListener('online'/'offline', ...)`), not two separate code paths — Leaflet's
+   coordinate/pan/zoom system doesn't depend on tiles being present, so markers, pan, and zoom all
+   work identically with or without them; offline just shows a caption instead of the basemap. A
+   `currentPosition` GPS fix is captured once per `finalize` site-selection step
+   (`captureCurrentPositionForSiteSelection()`) and shared by both the map's "you are here" marker and
+   the list's distance sort, rather than each requesting location separately.
+
+   Tile image requests aren't special-cased in `sw.js` — its fetch handler already intercepts every
+   GET request with no origin filter (see "PWA shell" below), so OSM tiles get opportunistically
+   cached alongside the app shell for free, meaning a recently-viewed area stays visible offline next
+   time. There's no eviction, so this cache can grow unbounded over a long deployment — a known,
+   deliberately deferred tradeoff, not an oversight; revisit only if storage becomes an actual problem
+   in the field.
+
+   **Proximity warning on new-site registration.** Both new-site paths (the day-trip
+   `registerOnly` shortcut and the `finalize` flow's "Register new site" tab) share the same
+   `confirmSiteBtn` handler branch, so a single check there covers both: right after `currentSite`
+   is built and before `finishSiteConfirmation()` would run, `nearbyKnownSites(lat, lon,
+   NEARBY_SITE_WARNING_M)` (300m, a named constant next to `haversineMeters`/`formatDistance`) checks
+   the about-to-be-submitted coordinates against every known site. If any are within range,
+   `finishSiteConfirmation()` is *not* called yet — instead `openMapPicker()` opens in a "warning"
+   mode (`mapWarningActive`) that reuses the ordinary map picker's rendering (tiles, markers, popups)
+   but swaps in a warning banner, a `.newSiteMarker`-styled pin at the proposed coordinates (distinct
+   from the GPS "you are here" marker, since these coordinates may have been hand-edited away from
+   the live GPS fix), a tight `fitBounds` around just the proposed point and the nearby site(s)
+   instead of the full known-sites view, and two explicit actions in place of the normal flow
+   (`#mapWarningCancelBtn`/`#mapWarningContinueBtn`) — "Cancel" just closes the overlay with nothing
+   saved, "Register anyway" calls the same `finishSiteConfirmation()` that would have run without the
+   warning. Existing-site popups' "Use this site" button is suppressed while `mapWarningActive` is
+   true: picking the nearby site from here would produce a pointless record
+   (`survey_conducted:'no'` + `is_new_site:'no'`, i.e. no new entity and no real survey data) — this
+   mode is deliberately informational-only, not an alternate picker.
 5. **Record lifecycle** — same `pending → synced`/`failed` shape as the goanna app, one record per
    site visit (no multi-record "session" to finish). Field names on the record object are kept
    **identical to the XLSForm survey sheet's `name` column** (no separate `FIELD_MAP` translation
@@ -252,6 +314,10 @@ not a working import script — no Fulcrum export was available while drafting t
   — leave them alone unless the logo/QR library itself needs to change. The icon here is a
   generated water-drop mark (Pillow-drawn), not hand-designed artwork — regenerate rather than
   hand-edit the base64 if it needs to change.
+- Leaflet (`leaflet.js`/`leaflet.css`, ~160KB total) is vendored inline the same way — pasted
+  as-is from the library's own pre-built distributable, not hand-modified. If it ever needs
+  upgrading, re-fetch both files for the new version and paste over the existing blocks rather than
+  patching in place; don't add a build step or CDN reference to avoid re-vendoring by hand.
 - `crypto.randomUUID()` generates both `site_id` (which doubles as the entity's real key when
   `is_new_site='yes'`) and the OpenRosa `instanceID` — don't change ID generation without
   preserving uniqueness guarantees, and don't conflate the two IDs even though the same function
