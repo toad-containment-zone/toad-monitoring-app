@@ -162,35 +162,19 @@
     cursor: pointer;
   }
 
-  /* site card (home screen) */
-  #siteSummary { font-size: 14px; }
-  #siteSummary .sname { font-weight: 700; color: var(--rock); }
-  #siteSummary .scoords { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
-  #changeSiteBtn {
-    margin-top: 10px;
-    background: none;
-    border: 1.5px solid var(--line);
-    color: var(--marsh-dark);
-    border-radius: 7px;
-    padding: 7px 12px;
-    font-size: 12.5px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  #selectSiteBtn {
+  /* register-site card (home screen) */
+  #registerSiteBtn {
     width: 100%;
-    padding: 16px;
+    padding: 12px;
     border-radius: 10px;
-    border: none;
-    font-size: 16px;
+    border: 1.5px solid var(--line);
+    font-size: 14.5px;
     font-weight: 700;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: #fff;
-    background: var(--marsh);
+    color: var(--marsh-dark);
+    background: none;
     cursor: pointer;
   }
-  #selectSiteBtn:active { transform: scale(0.98); }
+  #registerSiteBtn:active { transform: scale(0.98); }
 
   .timer-wrap {
     display: flex;
@@ -519,20 +503,7 @@
   </div>
 
   <main>
-    <div class="card" id="siteCard">
-      <h2>Site</h2>
-      <div id="noSiteWrap">
-        <button id="selectSiteBtn">Select site</button>
-        <div class="hint">Choose an existing site or register a new one before timing a search.</div>
-      </div>
-      <div id="siteSummary" class="hidden">
-        <div class="sname" id="siteSummaryName">—</div>
-        <div class="scoords" id="siteSummaryCoords"></div>
-        <button id="changeSiteBtn">Change site</button>
-      </div>
-    </div>
-
-    <div class="card hidden" id="timerCard">
+    <div class="card" id="timerCard">
       <div class="timer-wrap">
         <div id="ring">
           <div>
@@ -543,6 +514,12 @@
         <button id="bigBtn">Start search</button>
         <div class="hint" id="hintText">Hit start when the search begins.</div>
       </div>
+    </div>
+
+    <div class="card" id="registerSiteCard">
+      <h2>New site?</h2>
+      <button id="registerSiteBtn">Register a new site</button>
+      <div class="hint">Found a new waterpoint but not searching it now? Register it here — the timed search can happen on a later visit.</div>
     </div>
 
     <div id="history">
@@ -559,10 +536,10 @@
 <!-- Site select / register sheet -->
 <div class="overlay" id="siteOverlay">
   <div class="sheet" id="siteSheet">
-    <h3>Select a site</h3>
-    <div class="sub">Every visit is tied to a site — choose one you've surveyed before, or register a new one.</div>
+    <h3 id="siteSheetTitle">Select a site</h3>
+    <div class="sub" id="siteSheetSub">Every visit is tied to a site — choose one you've surveyed before, or register a new one.</div>
 
-    <div class="field">
+    <div class="field" id="siteModeField">
       <div class="toggle2">
         <button type="button" class="siteModeBtn" data-val="existing">Existing site</button>
         <button type="button" class="siteModeBtn" data-val="new">Register new site</button>
@@ -659,7 +636,7 @@
 <div class="overlay" id="overlay">
   <div class="sheet" id="sheet">
     <h3>Search complete — <span id="modalDur">00:00</span></h3>
-    <div class="sub" id="modalSiteLine">A few quick details before this record is saved.</div>
+    <div class="sub">A few quick details, then you'll pick which site this was.</div>
 
     <div class="field">
       <label>How many people were searching?</label>
@@ -697,7 +674,7 @@
     </div>
 
     <div class="saveRow">
-      <button id="saveBtn">Save record</button>
+      <button id="saveBtn">Next: choose site</button>
       <button id="discardBtn" aria-label="Discard record" title="Discard record">🗑</button>
     </div>
   </div>
@@ -998,13 +975,26 @@
   let currentSite = null;      // { mode: 'existing'|'new', ...site fields... }
   let siteMode = 'existing';
   let selectedExistingSiteId = null;
+  let siteFlowPurpose = 'finalize'; // 'finalize' (end of a timed visit) | 'registerOnly' (day-trip shortcut)
 
-  function openSiteSheet() {
-    siteMode = 'existing';
+  // purpose: 'finalize' opens after a search's survey results are recorded, and lets the crew
+  // pick an existing site or register a new one to attach the just-finished record to. purpose:
+  // 'registerOnly' is the standalone day-trip shortcut — no survey has happened, so it forces
+  // "new site" mode and skips the existing-site tab entirely (there's nothing to select).
+  function openSiteSheet(purpose) {
+    siteFlowPurpose = purpose;
+    const registerOnly = purpose === 'registerOnly';
+    siteMode = registerOnly ? 'new' : 'existing';
     selectedExistingSiteId = null;
-    document.querySelectorAll('.siteModeBtn').forEach(b => b.classList.toggle('active', b.dataset.val === 'existing'));
-    $('existingSitePanel').classList.remove('hidden');
-    $('newSitePanel').classList.add('hidden');
+    document.querySelectorAll('.siteModeBtn').forEach(b => b.classList.toggle('active', b.dataset.val === siteMode));
+    $('siteModeField').classList.toggle('hidden', registerOnly);
+    $('existingSitePanel').classList.toggle('hidden', siteMode !== 'existing');
+    $('newSitePanel').classList.toggle('hidden', siteMode !== 'new');
+    $('siteSheetTitle').textContent = registerOnly ? 'Register a new site' : 'Which site was this?';
+    $('siteSheetSub').textContent = registerOnly
+      ? "Log a new waterpoint's details now — the timed search can happen on a later visit."
+      : "Choose the site you just searched, or register it if this was its first visit.";
+    $('confirmSiteBtn').textContent = registerOnly ? 'Register site' : 'Use this site';
     $('siteSearch').value = '';
     $('newSiteName').value = '';
     $('newSiteLat').value = '';
@@ -1015,6 +1005,7 @@
     document.querySelectorAll('.originBtn').forEach(b => b.classList.remove('active'));
     $('newSiteNta').value = 'none';
     $('newSiteProperty').value = 'none';
+    if (registerOnly) captureGpsForNewSite();
     renderSiteList();
     updateConfirmSiteState();
     $('siteOverlay').classList.add('show');
@@ -1120,6 +1111,45 @@
     $('confirmSiteBtn').disabled = !ok;
   }
 
+  // Copies currentSite's fields into a new record object; `extra` supplies whatever's specific
+  // to the visit (survey answers + survey_conducted, or the registration-only defaults).
+  function buildRecord(extra) {
+    return {
+      id: newId(),
+      n: records.length + 1,
+      is_new_site: currentSite.mode === 'new' ? 'yes' : 'no',
+      site_id: currentSite.site_id,
+      site_name: currentSite.site_name,
+      site_lat: currentSite.site_lat,
+      site_lon: currentSite.site_lon,
+      waterpoint_type: currentSite.waterpoint_type,
+      waterpoint_type_other: currentSite.waterpoint_type_other,
+      water_origin: currentSite.water_origin,
+      native_title_area: currentSite.native_title_area,
+      property: currentSite.property,
+      status: 'pending',   // pending | synced | failed
+      attempts: 0,
+      lastError: null,
+      ...extra
+    };
+  }
+
+  function finalizeRecord(rec) {
+    records.push(rec);
+    saveRecords();
+    renderHistory();
+    updateStatusBar();
+    trySyncAll();
+  }
+
+  function resetForNextVisit() {
+    currentSite = null;
+    pendingSurvey = null;
+    lastElapsedMs = 0;
+    visitStarted = null;
+    $('elapsed').textContent = '00:00';
+  }
+
   $('confirmSiteBtn').addEventListener('click', () => {
     if (siteMode === 'existing') {
       const site = allKnownSites().find(s => s.id === selectedExistingSiteId);
@@ -1152,32 +1182,44 @@
       };
     }
     $('siteOverlay').classList.remove('show');
-    showSelectedSite();
+
+    if (siteFlowPurpose === 'registerOnly') {
+      const now = new Date();
+      const rec = buildRecord({
+        survey_conducted: 'no',
+        visit_date: now.toISOString().slice(0, 10),
+        visit_time: now.toTimeString().slice(0, 5),
+        temperature_c: null,
+        toads_access_water: '',
+        people_searching: null,
+        time_searched_minutes: null,
+        toad_found: '',
+        notes: ''
+      });
+      finalizeRecord(rec);
+      currentSite = null;
+    } else {
+      const rec = buildRecord({
+        survey_conducted: 'yes',
+        visit_date: visitStarted.date,
+        visit_time: visitStarted.time,
+        ...pendingSurvey
+      });
+      finalizeRecord(rec);
+      resetForNextVisit();
+    }
   });
 
   $('siteOverlay').addEventListener('click', (e) => {
-    if (e.target === $('siteOverlay')) $('siteOverlay').classList.remove('show');
+    if (e.target !== $('siteOverlay')) return;
+    $('siteOverlay').classList.remove('show');
+    // Backing out mid-finalize shouldn't lose the just-recorded survey answers — the survey
+    // sheet's fields are still populated (nothing clears them until confirmSiteBtn fires), so
+    // just re-showing it is enough to let the crew try site selection again.
+    if (siteFlowPurpose === 'finalize') $('overlay').classList.add('show');
   });
 
-  function showSelectedSite() {
-    $('noSiteWrap').classList.add('hidden');
-    $('siteSummary').classList.remove('hidden');
-    $('siteSummaryName').textContent = siteSummaryLabel({ site_name: currentSite.site_name, latitude: currentSite.site_lat, longitude: currentSite.site_lon, id: currentSite.site_id });
-    $('siteSummaryCoords').textContent = (currentSite.site_lat != null && currentSite.site_lon != null)
-      ? currentSite.site_lat.toFixed(5) + ', ' + currentSite.site_lon.toFixed(5) + (currentSite.mode === 'new' ? ' · new site' : '')
-      : '';
-    $('timerCard').classList.remove('hidden');
-  }
-
-  function clearSelectedSite() {
-    currentSite = null;
-    $('siteSummary').classList.add('hidden');
-    $('noSiteWrap').classList.remove('hidden');
-    $('timerCard').classList.add('hidden');
-  }
-
-  $('selectSiteBtn').addEventListener('click', openSiteSheet);
-  $('changeSiteBtn').addEventListener('click', openSiteSheet);
+  $('registerSiteBtn').addEventListener('click', () => openSiteSheet('registerOnly'));
 
   // ---------- timer ----------
   let running = false;
@@ -1200,9 +1242,9 @@
   }
 
   let visitStarted = null; // { date, time } captured at the moment the search begins
+  let pendingSurvey = null; // survey-results answers, stashed between "Next" and site confirmation
 
   $('bigBtn').addEventListener('click', () => {
-    if (!currentSite) return;
     if (!running) {
       running = true;
       startTs = Date.now();
@@ -1229,7 +1271,6 @@
 
   function openModal() {
     $('modalDur').textContent = fmt(lastElapsedMs);
-    $('modalSiteLine').textContent = currentSite ? siteSummaryLabel({ site_name: currentSite.site_name, latitude: currentSite.site_lat, longitude: currentSite.site_lon, id: currentSite.site_id }) : '';
     people = 1; $('peopleVal').textContent = people;
     $('temperatureInput').value = '';
     $('notesInput').value = '';
@@ -1261,43 +1302,17 @@
     const foundBtn = document.querySelector('.toadFoundBtn.active');
     if (!waterBtn) { alert('Please select whether toads can access the water.'); return; }
     if (!foundBtn) { alert('Please select whether a toad was found.'); return; }
-    if (!currentSite) { alert('No site selected.'); return; }
 
-    const rec = {
-      id: newId(),
-      n: records.length + 1,
-      is_new_site: currentSite.mode === 'new' ? 'yes' : 'no',
-      site_id: currentSite.site_id,
-      site_name: currentSite.site_name,
-      site_lat: currentSite.site_lat,
-      site_lon: currentSite.site_lon,
-      waterpoint_type: currentSite.waterpoint_type,
-      waterpoint_type_other: currentSite.waterpoint_type_other,
-      water_origin: currentSite.water_origin,
-      native_title_area: currentSite.native_title_area,
-      property: currentSite.property,
-      visit_date: visitStarted.date,
-      visit_time: visitStarted.time,
+    pendingSurvey = {
       temperature_c: $('temperatureInput').value.trim() !== '' ? +$('temperatureInput').value : null,
       toads_access_water: waterBtn.dataset.val,
       people_searching: people,
       time_searched_minutes: Math.max(0, Math.round(lastElapsedMs / 60000)),
       toad_found: foundBtn.dataset.val,
-      notes: $('notesInput').value.trim(),
-      status: 'pending',   // pending | synced | failed
-      attempts: 0,
-      lastError: null
+      notes: $('notesInput').value.trim()
     };
-    records.push(rec);
-    saveRecords();
     $('overlay').classList.remove('show');
-    renderHistory();
-    updateStatusBar();
-    $('elapsed').textContent = '00:00';
-    trySyncAll();
-    // A freshly-registered site now has a real survey record backing it — leave the site
-    // selected so the crew can immediately queue a second search at the same site if needed;
-    // "Change site" is always available to move on.
+    openSiteSheet('finalize');
   });
 
   $('discardBtn').addEventListener('click', () => {
@@ -1342,14 +1357,15 @@
       const syncBadgeClass = r.status === 'synced' ? 'synced' : (r.status === 'failed' ? 'failed' : 'pending');
       const syncBadgeText = r.status === 'synced' ? 'Synced' : (r.status === 'failed' ? 'Failed — tap to retry' : 'Queued');
       const siteLabel = siteSummaryLabel({ site_name: r.site_name, latitude: r.site_lat, longitude: r.site_lon, id: r.site_id });
+      const registrationOnly = r.survey_conducted === 'no';
       return `
-      <div class="record ${foundBadgeClass(r)}" data-id="${r.id}">
+      <div class="record ${registrationOnly ? '' : foundBadgeClass(r)}" data-id="${r.id}">
         <div class="rtop">
-          <span>#${r.n} <span class="dur">${r.time_searched_minutes} min</span></span>
+          <span>#${r.n} <span class="dur">${registrationOnly ? 'Site registered' : r.time_searched_minutes + ' min'}</span></span>
           <span class="badge ${syncBadgeClass}">${syncBadgeText}</span>
         </div>
         <div class="rmeta">${escXml(siteLabel)} · ${escXml(r.visit_date)}</div>
-        <div class="rmeta">${r.people_searching} searching · toad found: ${r.toad_found === 'yes' ? 'Yes' : 'No'}</div>
+        ${registrationOnly ? '' : `<div class="rmeta">${r.people_searching} searching · toad found: ${r.toad_found === 'yes' ? 'Yes' : 'No'}</div>`}
         ${r.status === 'failed' && r.lastError ? `<div class="rmeta" style="color: var(--err); margin-top: 3px;">${escXml(r.lastError)}</div>` : ''}
       </div>`;
     }).join('');
@@ -1489,12 +1505,13 @@
   <water_origin>${escXml(rec.water_origin || '')}</water_origin>
   <native_title_area>${escXml(rec.native_title_area || '')}</native_title_area>
   <property>${escXml(rec.property || '')}</property>
+  <survey_conducted>${escXml(rec.survey_conducted)}</survey_conducted>
   <visit_date>${escXml(rec.visit_date)}</visit_date>
   <visit_time>${escXml(rec.visit_time)}</visit_time>
   <temperature_c>${rec.temperature_c != null ? rec.temperature_c : ''}</temperature_c>
   <toads_access_water>${escXml(rec.toads_access_water)}</toads_access_water>
-  <people_searching>${rec.people_searching}</people_searching>
-  <time_searched_minutes>${rec.time_searched_minutes}</time_searched_minutes>
+  <people_searching>${rec.people_searching != null ? rec.people_searching : ''}</people_searching>
+  <time_searched_minutes>${rec.time_searched_minutes != null ? rec.time_searched_minutes : ''}</time_searched_minutes>
   <toad_found>${escXml(rec.toad_found)}</toad_found>
   <notes>${escXml(rec.notes || '')}</notes>
   <meta>

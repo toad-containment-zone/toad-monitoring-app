@@ -90,6 +90,7 @@ import.
 | notes | `notes` | free text |
 | *(n/a)* | `is_new_site` | `yes` only on the one imported record chosen to "own" each site's entity creation (see below); `no` on every other visit to that same site |
 | *(n/a)* | `site_id` | the entity's assigned ID (see below) — same value on every record for that site |
+| *(n/a)* | `survey_conducted` | `yes` on every imported row — this field distinguishes a real timed search from the app's own "register a site with no survey" shortcut (added after this app went live), and every historical Fulcrum record represents a real search, never a bare registration |
 
 ## Suggested import procedure
 

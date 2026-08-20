@@ -78,12 +78,22 @@ Organized into commented sections in the single `<script>` block (search for `//
      (`{ fetchedAt, sites }`) and refreshed opportunistically (opening the site sheet, if the cache
      is >5 minutes old and online) or on demand ("Refresh site list" button).
    - **Registering**: a new site isn't submitted separately — it's captured in the *same*
-     submission as the first survey against it (`is_new_site = 'yes'` gates both the visible "new
-     site" form fields and the entity's `create_if`). `allKnownSites()` merges the last-fetched CSV
-     with any site this device has registered locally (from `records` where `is_new_site='yes'`,
-     regardless of sync status) so a freshly-registered site is selectable for a second visit
-     immediately, without waiting for the next manifest refresh — tagged "(pending sync)" in the
-     picker until the record actually syncs.
+     submission as a survey record (`is_new_site = 'yes'` gates both the visible "new site" form
+     fields and the entity's `create_if`). There are two ways that submission comes about: (a) the
+     normal end-of-visit flow, where the crew searches a site, records survey results, and only then
+     picks "register new site" as part of choosing which site the just-finished search belongs to
+     (`survey_conducted='yes'` on that record); or (b) the standalone "Register a new site" shortcut
+     on the main screen, for crews who establish a site during the day and don't run a timed search
+     until a later visit — this submits immediately with no timer/survey step involved, and
+     `survey_conducted='no'` flags it so it's never mistaken for a real zero-effort search
+     downstream (all five survey-outcome fields — `temperature_c`, `toads_access_water`,
+     `people_searching`, `time_searched_minutes`, `toad_found` — are left blank on these records; the
+     XLSForm's `relevant`/`required` on those fields are conditioned on `${survey_conducted} =
+     'yes'`, matching the `is_new_site`-conditioned site fields above it). `allKnownSites()` merges
+     the last-fetched CSV with any site this device has registered locally (from `records` where
+     `is_new_site='yes'`, regardless of sync status or which of the two paths created it) so a
+     freshly-registered site is selectable immediately, without waiting for the next manifest
+     refresh — tagged "(pending sync)" in the picker until the record actually syncs.
    - **Never updating**: `update="false"` is hardcoded in every submission's `<meta><entity>`
      element. Reusing an existing site leaves its property fields unanswered/blank in that
      submission; without `update="false"` an upsert would overwrite the entity's real properties
@@ -91,26 +101,41 @@ Organized into commented sections in the single `<script>` block (search for `//
      pyxform requires an explicit `update_if` whenever both `entity_id` and `create_if` are present
      (this "upsert" detection tripped the compile check once while building this; the fix was
      adding `update_if=false()`, not removing `entity_id`).
-3. **Site selection UI** — the site-select bottom sheet (`#siteOverlay`) is the app's entry point,
-   replacing the goanna app's "Start hunting" button. `openSiteSheet()` shows either an
-   existing-site picker (search + tap-to-select from `allKnownSites()`) or a new-site registration
-   form (lat/lon — GPS-prefilled *but manually editable*, unlike the goanna app's GPS-only capture,
-   because site coordinates are entered once and reused for years so it's worth letting a crew
-   correct a bad GPS fix; site name; waterpoint type checkboxes; natural/artificial toggle; native
-   title area). Confirming stores the choice in `currentSite` (in-memory only — nothing is
-   submitted yet) and reveals the timer card. There's no persistent "session" wrapper like goanna's
-   hunting session: each site visit is one standalone submission, matching the Fulcrum data model
-   this app replaces (see "Fulcrum migration" below).
-4. **Timer** — same start/stop stopwatch pattern as the goanna app (`running`, `startTs`,
-   `tick()`), relabelled: "Start search" / "Stop search". `time_searched_minutes` is the elapsed
-   time rounded to the nearest minute (Fulcrum's original field granularity), not seconds. Unlike
-   the goanna app, stopping the timer doesn't imply detection — "was a toad found?" is asked
-   explicitly in the record sheet afterwards, since a search can end with no detection at all.
+3. **Timer** — `#timerCard` is the app's entry point (visible on load, no site or anything else
+   required first) — field crews arrive at a site and start searching immediately, so the very
+   first thing they interact with is "Start search"/"Stop search", the same start/stop stopwatch
+   pattern as the goanna app (`running`, `startTs`, `tick()`). `time_searched_minutes` is the
+   elapsed time rounded to the nearest minute (Fulcrum's original field granularity), not seconds.
+   Unlike the goanna app, stopping the timer doesn't imply detection — survey results (including
+   "was a toad found?") are asked explicitly afterwards, since a search can end with no detection
+   at all.
+4. **Survey results, then site selection** — stopping the timer opens the survey-results sheet
+   (`#overlay`: people searching, temperature, water access, toad found, notes) *before* the app
+   knows which site this was. Tapping "Next: choose site" stashes those answers in a
+   module-level `pendingSurvey` object (nothing's saved yet) and opens the site-select bottom sheet
+   (`#siteOverlay`, `openSiteSheet('finalize')`) — either an existing-site picker (search +
+   tap-to-select from `allKnownSites()`) or a new-site registration form (lat/lon — GPS-prefilled
+   *but manually editable*, unlike the goanna app's GPS-only capture, because site coordinates are
+   entered once and reused for years so it's worth letting a crew correct a bad GPS fix; site name;
+   waterpoint type checkboxes; natural/artificial toggle; native title area; property). Confirming
+   builds `currentSite`, merges it with `pendingSurvey`, and *that's* the point the record is
+   actually saved/queued — the app then resets to a fresh idle timer for the next visit. There's no
+   persistent "session" wrapper like goanna's hunting session: each site visit is one standalone
+   submission, matching the Fulcrum data model this app replaces (see "Fulcrum migration" below).
+   Backing out of the site sheet without confirming (backdrop tap) re-opens the survey-results
+   sheet rather than discarding the search — its field values are still intact since nothing clears
+   them until a site is actually confirmed.
+
+   Separately, `#registerSiteBtn` on the main screen opens the same site sheet in
+   `openSiteSheet('registerOnly')` mode (forced to "new site", existing-site tab hidden) for the
+   day-trip site-registration shortcut described above — confirming there submits immediately with
+   no timer/survey step at all.
 5. **Record lifecycle** — same `pending → synced`/`failed` shape as the goanna app, one record per
    site visit (no multi-record "session" to finish). Field names on the record object are kept
    **identical to the XLSForm survey sheet's `name` column** (no separate `FIELD_MAP` translation
    layer like the goanna app has) — deliberately, to remove one source of drift between the two
-   files; if you rename a field in one, rename it in the other.
+   files; if you rename a field in one, rename it in the other. `survey_conducted` ('yes' on a
+   normal timed-search record, 'no' on a registration-only one) follows this same rule.
 6. **XForms/OpenRosa submission building** — `buildSubmissionXml()` emits a flat instance (no XML
    groups, matching the goanna app's precedent — this app hand-builds submission XML rather than
    running an XForms engine, so keeping the instance flat means the JS's own branching logic can
@@ -170,6 +195,13 @@ new-site registration path (`is_new_site='yes'`) — a bare OpenRosa `xml_submis
 is accepted, creates the entity, and both the entity's properties and the survey's own answers land
 in Central in the right places. This was the last unverified piece of the entities design; nothing
 about entity creation or the OpenRosa submission path remains unexercised against a live Central.
+
+That verification was of a `create="true"` submission carrying real survey answers (the normal
+end-of-visit flow). The day-trip "Register a new site" shortcut (`survey_conducted='no'`) posts the
+same shape — same entity block, same `create="true"` — just with the five survey-outcome fields
+blank instead of filled in. Structurally identical, so this should behave the same, but that
+specific blank-fields case hasn't itself been separately exercised against a live Central yet —
+worth a quick check before relying on it in the field.
 
 ### PWA shell (`manifest.json`, `sw.js`, `index.html`)
 
