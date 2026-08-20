@@ -56,17 +56,26 @@ used to prefill a new site's coordinates (you can always edit them by hand).
 
 ## Using it in the field
 
-- Tap **Select site** to begin. Choose an existing site from the list (search by name), or
-  **Register new site** if this waterpoint hasn't been surveyed before — fill in its location,
-  waterpoint type, and native title area once; you won't need to re-enter them on future visits.
-- Use the timer to record the search: **Start search**, then **Stop search** once the search ends
-  (whether or not a toad was found).
-- Fill in the quick follow-up details (people searching, temperature, water access, whether a
-  toad was found, notes) and tap **Save record**.
+- The timer is the first thing you see when you open the app — tap **Start search** as soon as you
+  arrive at a waterpoint, then **Stop search** once the search ends (whether or not a toad was
+  found).
+- Fill in the quick follow-up details (people searching, temperature, water access, whether a toad
+  was found, notes) and tap **Next: choose site**.
+- Say which site this search was at:
+  - **Existing site** — tap **🗺️ View on map** to find it visually (your current location is shown
+    too, and known sites are marked), or use **or choose from a list** to search by name instead if
+    GPS or the map isn't cooperating.
+  - **Register new site** if this waterpoint hasn't been surveyed before — fill in its location
+    (GPS-prefilled, but you can correct it by hand), name, waterpoint type, native title area, and
+    property once; you won't need to re-enter them on future visits. If the coordinates are close to
+    a site that's already known, the app shows a map warning first so you can check it isn't a
+    duplicate before saving.
+- Setting up new sites for a future visit without timing a search there yet? Tap **Register a new
+  site** on the main screen — it registers the site straight away with no timer or survey step
+  involved.
 - Records sync automatically whenever you have signal (or tap **Sync now**). Nothing is lost if
   you're offline — everything queues on the phone until it can sync, including newly-registered
   sites (shown as "pending sync" in the site list until they go through).
-- Tap **Change site** at any point to switch to a different site.
 
 ## Historical data
 
