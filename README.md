@@ -10,24 +10,10 @@ installed — no signal needed out in the field.
 
 ## Setup (do this once)
 
-### 1. Admin: set up the ODK Central project
+You'll need an app user QR code or text code from whoever manages the TCZ program's ODK Central
+project before you start — see step 2 below.
 
-Before any field device can use this app, someone with admin access to the ODK Central project
-needs to:
-
-1. Upload `toad_detection_survey.xlsx` as a form in the project. Publishing it will create the
-   `toad_monitoring_sites` entity dataset (declared on the workbook's `entities` sheet).
-2. Create an **app user** for the field crew/device and grant it access to the
-   `toad_detection_survey` form.
-3. Confirm the app user can download the form's `manifest` and its `toad_monitoring_sites.csv`
-   attachment — this app relies on that (the same offline-entity-list mechanism ODK Collect uses)
-   to show field crews the list of already-registered sites. If sites aren't showing up on a
-   device that should have connectivity, this is the first thing to check in Central's project
-   settings.
-4. Send the app user's QR code / long text code to the field crew (from the app user's page in
-   Central — "QR code" / "Configure a client with this code").
-
-### 2. Install the app on your phone
+### 1. Install the app on your phone
 
 **iOS (must use Safari — other browsers don't support this):**
 1. Open the app URL above in Safari.
@@ -42,7 +28,7 @@ needs to:
 Either way you'll get an app icon on your home screen. Open it once while you have signal so it
 can finish setting itself up for offline use — after that it'll launch instantly with zero bars.
 
-### 3. Add your app user code
+### 2. Add your app user code
 
 1. Open the app and tap the ⚙ settings icon.
 2. Under **Central app user code**, either tap **📷 Scan QR code instead** and scan the code you
