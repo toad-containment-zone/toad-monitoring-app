@@ -135,12 +135,12 @@ scripts in `../invasion-front-monitoring/src/fulcrum-migration/`): posting
 existing entity *is* accepted — 78 of 80 historical submissions built in exactly
 `buildSubmissionXml()`'s shape (`create="false" update="false"`, referencing a real entity `id`)
 were accepted by Central with `200`; the other 2 were `409` duplicate-`instanceID` conflicts from a
-re-run, not shape/validation rejections. That resolves the second bullet below. It does **not**
-resolve the first or third bullets: the migration authenticated as a **web user** and posted to
-Central's REST endpoint (`POST /v1/projects/:id/forms/:xmlFormId/submissions`), not this app's
-app-user-scoped OpenRosa `xml_submission_file` path, and it created entities via Central's bulk
-"Upload CSV" dataset page (an admin/web-user action), never via a submission's `create="true"` —
-so the app's own `is_new_site='yes'` create path is still unexercised against a live Central.
+re-run, not shape/validation rejections. That resolves the "update an existing entity" case. It
+does **not** by itself resolve entity *creation*: the migration authenticated as a **web user** and
+posted to Central's REST endpoint (`POST /v1/projects/:id/forms/:xmlFormId/submissions`), not this
+app's app-user-scoped OpenRosa `xml_submission_file` path, and it created entities via Central's
+bulk "Upload CSV" dataset page (an admin/web-user action), never via a submission's `create="true"`
+— see below for where the app's own create path was verified instead.
 
 One more thing the migration surfaced: Central's **entity-list CSV download** (from a dataset's
 page in the Central UI) is a *different* shape from the CSV Central auto-attaches to a form's
@@ -153,7 +153,7 @@ about one CSV's columns applies to the other.
 Verified against a live Central 2026.x via an actual **app-user session** in the app itself (not a
 migration script): Central *does* auto-attach `toad_monitoring_sites.csv` to this form's manifest
 for app users — `fetchSiteList()`'s manifest fetch found and downloaded it correctly once one bug
-was fixed (see below). That resolves the first "still not verified" bullet below.
+was fixed (see below).
 
 That bug, now fixed: `fetchSiteList()`'s two `fetch()` calls (the manifest GET and the CSV
 download GET) sent no headers at all, so Central rejected the manifest request with `400`. Central
@@ -164,15 +164,12 @@ alike, GET or POST — "or the request will be rejected" (per
 future OpenRosa fetch is added to this app, give it the same header from the start rather than
 rediscovering this via a live 400.
 
-**Still not verified** — check this against a real Central project before trusting it in the field:
-- That creating an entity via a bare OpenRosa `xml_submission_file` POST with `create="true"` (no
-  ODK Collect, no web-user REST call involved) is accepted the same way it would be from Collect —
-  the migration always created entities via Central's bulk CSV upload instead, so this app's own
-  new-site registration path (`is_new_site='yes'`) has never been exercised against a live Central.
-
-If either of these turn out to be wrong, the fix is almost certainly local to `buildSubmissionXml()`
-and/or the `entities` sheet — the rest of the app (sync queue, offline storage, timer) doesn't need
-to know or care how entity creation works under the hood.
+Verified against a live Central 2026.x via an actual **app-user session** in the app itself: the
+new-site registration path (`is_new_site='yes'`) — a bare OpenRosa `xml_submission_file` POST with
+`create="true"` in the `<meta><entity>` block, no ODK Collect and no web-user REST call involved —
+is accepted, creates the entity, and both the entity's properties and the survey's own answers land
+in Central in the right places. This was the last unverified piece of the entities design; nothing
+about entity creation or the OpenRosa submission path remains unexercised against a live Central.
 
 ### PWA shell (`manifest.json`, `sw.js`, `index.html`)
 

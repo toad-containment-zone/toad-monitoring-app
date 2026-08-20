@@ -134,8 +134,15 @@ import.
    web user (`POST /v1/sessions`) and POSTs each file's raw XML to `POST
    /v1/projects/:id/forms/toad_detection_survey/submissions`. Test it against 1-2 records first
    (its `CENTRAL_UPLOAD_LIMIT` env var) and confirm they land against the right entity in Central's
-   UI before uploading the full batch — this raw-XML REST path hasn't been verified against a live
-   Central, unlike the entity-upload behaviour in step 3, which has.
+   UI before uploading the full batch. **Update**: this raw-XML REST path has since been run
+   against a live Central 2026.x for the actual migration — 78 of 80 historical submissions built
+   in this shape (`create="false" update="false"`, referencing a real entity `id`) were accepted
+   with `200`; the other 2 were `409` duplicate-`instanceID` conflicts from a re-run, not
+   shape/validation rejections. See `toad-monitoring-app.html`'s CLAUDE.md, "Entities: what's
+   verified vs. assumed", for the full picture — including that the app's own field-facing
+   new-site-creation path (`is_new_site='yes'`, `create="true"`, posted via the app-user OpenRosa
+   `xml_submission_file` endpoint rather than this migration's web-user REST/bulk-CSV paths) has
+   now separately been verified live too, end-to-end through the app itself.
 5. **Spot-check** a handful of imported sites in the app itself (or via Central's UI) — confirm a
    site that should have multiple historical visits shows up once as an entity with several
    submissions against it, not several near-duplicate entities.
