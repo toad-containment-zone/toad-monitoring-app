@@ -1832,17 +1832,38 @@ svg.leaflet-image-layer.leaflet-interactive path {
   let currentPosition = null;  // { lat, lon } — captured once per site-selection step, shared by
                                 // the map's "you are here" marker and the list's distance sort.
 
+  // Wraps getCurrentPosition with a sane timeout (there is none by default, so a stuck fix
+  // could otherwise hang forever with neither callback ever firing) and high accuracy, since
+  // this is used outdoors where that costs little. Ported from goanna-hunting-app.html's
+  // identical helper.
+  function getLocation(onSuccess, onError) {
+    if (!navigator.geolocation) { onError({ code: 0 }); return; }
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy: true, timeout: 8000, maximumAge: 0
+    });
+  }
+
+  function geoErrorMessage(err) {
+    const canEnterByHand = ' You can still enter coordinates by hand.';
+    switch (err && err.code) {
+      case 1: return 'Location permission is off for this app — enable it in your device settings.' + canEnterByHand;
+      case 2: return 'Location services appear to be unavailable — check GPS/location is turned on.' + canEnterByHand;
+      case 3: return 'Getting a GPS fix timed out — check location services are on and you have a clear view of the sky.' + canEnterByHand;
+      default: return "This device/browser doesn't support location services." + canEnterByHand;
+    }
+  }
+
   // Captured once when the finalize flow's site-selection step opens (not for registerOnly, which
   // has its own separate GPS capture for the new-site lat/lon via captureGpsForNewSite()) so both
   // the map and the list view read the same fix rather than each requesting location separately.
   function captureCurrentPositionForSiteSelection() {
     currentPosition = null;
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(pos => {
+    getLocation(pos => {
       currentPosition = { lat: pos.coords.latitude, lon: pos.coords.longitude };
       renderSiteList();
       if (siteMap) placeYouAreHereMarker();
-    }, () => { /* left null — map/list fall back to their no-position behavior */ });
+    }, () => { /* left null — map/list fall back to their no-position behavior; the app-load
+                  proactive check already surfaces a broken device/permission once per session */ });
   }
 
   // purpose: 'finalize' opens after a search's survey results are recorded, and lets the crew
@@ -2002,9 +2023,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
     });
   });
 
-  function captureGpsForNewSite() {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(pos => {
+  // Only alerts every time on a manual retry (the "Use current location" button — a deliberate
+  // action always deserves feedback); automatic calls (opening the new-site form/tab) alert only
+  // once per session via newSiteGpsWarned, so the crew isn't re-nagged on every visit once they've
+  // already seen the message and know to enter coordinates by hand.
+  let newSiteGpsWarned = false;
+  function captureGpsForNewSite(manual) {
+    getLocation(pos => {
       $('newSiteLat').value = pos.coords.latitude.toFixed(5);
       $('newSiteLon').value = pos.coords.longitude.toFixed(5);
       updateConfirmSiteState();
@@ -2012,9 +2037,15 @@ svg.leaflet-image-layer.leaflet-interactive path {
       // time filling in the rest of the new-site form — see checkNewSiteProximity's 'late'
       // counterpart in confirmSiteBtn's handler for the final check at submit time.
       checkNewSiteProximity(pos.coords.latitude, pos.coords.longitude, 'early');
-    }, () => { /* left blank if GPS fails — lat/lon stay manually editable */ });
+    }, err => {
+      // left blank if GPS fails — lat/lon stay manually editable
+      if (manual || !newSiteGpsWarned) {
+        alert(geoErrorMessage(err));
+        newSiteGpsWarned = true;
+      }
+    });
   }
-  $('useGpsBtn').addEventListener('click', captureGpsForNewSite);
+  $('useGpsBtn').addEventListener('click', () => captureGpsForNewSite(true));
 
   document.querySelectorAll('.wpChk').forEach(chk => {
     chk.addEventListener('change', () => {
@@ -2797,6 +2828,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
   renderHistory();
   updateStatusBar();
   if (navigator.onLine) trySyncAll();
+  // Proactively surface a broken device/browser location setup the moment the app opens, rather
+  // than only discovering it deep inside the new-site form — mirrors goanna-hunting-app.html's
+  // identical init-time check.
+  getLocation(() => {}, err => alert(geoErrorMessage(err)));
 
 </script>
 </body>
