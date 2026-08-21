@@ -1821,7 +1821,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   }
 
   function siteSummaryLabel(site) {
-    return site.site_name || (site.latitude != null && site.longitude != null ? site.latitude.toFixed(5) + ', ' + site.longitude.toFixed(5) : site.id);
+    return site.site_name || (Number.isFinite(site.latitude) && Number.isFinite(site.longitude) ? site.latitude.toFixed(5) + ', ' + site.longitude.toFixed(5) : site.id);
   }
 
   // ---------- site selection ----------
@@ -1923,10 +1923,20 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   function nearbyKnownSites(lat, lon, thresholdM) {
     return allKnownSites()
-      .filter(s => s.latitude != null && s.longitude != null)
+      .filter(s => Number.isFinite(s.latitude) && Number.isFinite(s.longitude))
       .map(s => ({ site: s, dist: haversineMeters({ lat, lon }, { lat: s.latitude, lon: s.longitude }) }))
       .filter(x => x.dist <= thresholdM)
       .sort((a, b) => a.dist - b.dist);
+  }
+
+  // Shared by both new-site trigger points (captureGpsForNewSite's early check and
+  // confirmSiteBtn's late/save-time check) — see openMapPicker's `warning.stage` handling for how
+  // the two stages differ in what Continue/Cancel do.
+  function checkNewSiteProximity(lat, lon, stage) {
+    const nearby = nearbyKnownSites(lat, lon, NEARBY_SITE_WARNING_M);
+    if (nearby.length === 0) return false;
+    openMapPicker({ lat, lon, matches: nearby, stage });
+    return true;
   }
 
   // Shared between the list rows and the map popups so both stay in sync automatically.
@@ -1943,7 +1953,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     const sites = allKnownSites().filter(s => !q || (s.site_name || '').toLowerCase().includes(q));
     const withDist = sites.map(s => ({
       site: s,
-      dist: (currentPosition && s.latitude != null && s.longitude != null)
+      dist: (currentPosition && Number.isFinite(s.latitude) && Number.isFinite(s.longitude))
         ? haversineMeters(currentPosition, { lat: s.latitude, lon: s.longitude })
         : null
     }));
@@ -1955,7 +1965,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     }
     list.innerHTML = withDist.map(({ site: s, dist }) => {
       const badges = siteBadges(s);
-      const coords = (s.latitude != null && s.longitude != null) ? s.latitude.toFixed(4) + ', ' + s.longitude.toFixed(4) : '';
+      const coords = (Number.isFinite(s.latitude) && Number.isFinite(s.longitude)) ? s.latitude.toFixed(4) + ', ' + s.longitude.toFixed(4) : '';
       return `
       <div class="siteRow ${s.id === selectedExistingSiteId ? 'selected' : ''}" data-id="${escXml(s.id)}">
         <div class="sname">${escXml(siteSummaryLabel(s))}${s.source === 'local' ? ' <span class="spending">(pending sync)</span>' : ''}</div>
@@ -1998,6 +2008,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
       $('newSiteLat').value = pos.coords.latitude.toFixed(5);
       $('newSiteLon').value = pos.coords.longitude.toFixed(5);
       updateConfirmSiteState();
+      // Check for nearby known sites as soon as a location is available, before the crew spends
+      // time filling in the rest of the new-site form — see checkNewSiteProximity's 'late'
+      // counterpart in confirmSiteBtn's handler for the final check at submit time.
+      checkNewSiteProximity(pos.coords.latitude, pos.coords.longitude, 'early');
     }, () => { /* left blank if GPS fails — lat/lon stay manually editable */ });
   }
   $('useGpsBtn').addEventListener('click', captureGpsForNewSite);
@@ -2141,13 +2155,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
       native_title_area: $('newSiteNta').value,
       property: $('newSiteProperty').value
     };
-    const nearby = nearbyKnownSites(currentSite.site_lat, currentSite.site_lon, NEARBY_SITE_WARNING_M);
-    if (nearby.length > 0) {
-      // currentSite stays set — openMapPicker's warning mode decides whether to actually finalize
-      // (Register anyway) or leave it be (Cancel), so nothing is submitted yet either way.
-      openMapPicker({ lat: currentSite.site_lat, lon: currentSite.site_lon, matches: nearby });
-      return;
-    }
+    // currentSite stays set — openMapPicker's warning mode decides whether to actually finalize
+    // (Register anyway) or leave it be (Cancel), so nothing is submitted yet either way.
+    if (checkNewSiteProximity(currentSite.site_lat, currentSite.site_lon, 'late')) return;
     finishSiteConfirmation();
   });
 
@@ -2175,11 +2185,18 @@ svg.leaflet-image-layer.leaflet-interactive path {
   let youAreHereMarker = null;
   let proposedSiteMarker = null;
   let osmTileLayer = null;
-  // True only while the proximity-warning map is on screen (opened from confirmSiteBtn's new-site
-  // branch when a known site is too close) — suppresses "Use this site" on every popup, since this
-  // mode is purely informational: picking the nearby site here would produce a pointless record
+  // True only while the proximity-warning map is on screen (opened from checkNewSiteProximity when
+  // a known site is too close) — suppresses "Use this site" on every popup, since this mode is
+  // purely informational: picking the nearby site here would produce a pointless record
   // (survey_conducted:'no' referencing an *existing* site creates nothing and updates nothing).
   let mapWarningActive = false;
+  // Set alongside mapWarningActive whenever a warning is showing — { stage: 'early'|'late', lat,
+  // lon, matches } (same shape as openMapPicker's `warning` argument). 'early' fires as soon as a
+  // new-site GPS fix resolves, before the form is filled in, so nothing has been submitted yet
+  // either way; 'late' fires at save time with the (possibly hand-edited) final coordinates, and
+  // Continue there really does submit. The two stages need different Continue/Cancel behavior —
+  // see the mapWarningContinueBtn/mapWarningCancelBtn handlers below.
+  let mapWarningInfo = null;
 
   function siteDivIcon(pending) {
     return L.divIcon({ className: '', html: '<div class="siteMarker' + (pending ? ' pending' : '') + '"></div>', iconSize: [16, 16] });
@@ -2195,7 +2212,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   function siteMarkerPopupContent(site) {
     const badges = siteBadges(site);
-    const coords = (site.latitude != null && site.longitude != null) ? site.latitude.toFixed(4) + ', ' + site.longitude.toFixed(4) : '';
+    const coords = (Number.isFinite(site.latitude) && Number.isFinite(site.longitude)) ? site.latitude.toFixed(4) + ', ' + site.longitude.toFixed(4) : '';
     const wrap = document.createElement('div');
     wrap.className = 'mapPopup';
     wrap.innerHTML = `
@@ -2212,11 +2229,18 @@ svg.leaflet-image-layer.leaflet-interactive path {
     else siteMarkersLayer = L.layerGroup().addTo(siteMap);
     siteMarkersById = new Map();
     allKnownSites().forEach(site => {
-      if (site.latitude == null || site.longitude == null) return;
-      const marker = L.marker([site.latitude, site.longitude], { icon: siteDivIcon(site.source === 'local') });
-      marker.bindPopup(siteMarkerPopupContent(site));
-      marker.addTo(siteMarkersLayer);
-      siteMarkersById.set(site.id, marker);
+      if (!Number.isFinite(site.latitude) || !Number.isFinite(site.longitude)) return;
+      // One malformed site (e.g. a bad coordinate surviving from older CSV/entity data) must
+      // never abort every marker after it — locally-registered new sites are always appended
+      // last in allKnownSites()'s merge order, so they'd be the ones silently dropped.
+      try {
+        const marker = L.marker([site.latitude, site.longitude], { icon: siteDivIcon(site.source === 'local') });
+        marker.bindPopup(siteMarkerPopupContent(site));
+        marker.addTo(siteMarkersLayer);
+        siteMarkersById.set(site.id, marker);
+      } catch (e) {
+        console.warn('Skipping unplottable site marker', site.id, e);
+      }
     });
   }
 
@@ -2271,7 +2295,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       return;
     }
     const points = allKnownSites()
-      .filter(s => s.latitude != null && s.longitude != null)
+      .filter(s => Number.isFinite(s.latitude) && Number.isFinite(s.longitude))
       .map(s => [s.latitude, s.longitude]);
     if (currentPosition) points.push([currentPosition.lat, currentPosition.lon]);
     if (points.length > 0) siteMap.fitBounds(points, { padding: [40, 40], maxZoom: 15 });
@@ -2280,11 +2304,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
     else siteMap.setView([-18.0, 124.0], 7);
   }
 
-  // warning, when passed, is { lat, lon, matches } describing a new-site registration that's too
-  // close to (an) already-known site(s) — see confirmSiteBtn's handler. Omit it for the ordinary
-  // existing-site picker opened from "View on map".
+  // warning, when passed, is { lat, lon, matches, stage } describing a new-site registration
+  // that's too close to (an) already-known site(s) — see checkNewSiteProximity. Omit it for the
+  // ordinary existing-site picker opened from "View on map".
   function openMapPicker(warning) {
     mapWarningActive = !!warning;
+    mapWarningInfo = warning || null;
     $('mapOverlay').classList.add('show');
     $('mapSearch').value = '';
     $('mapSearchResults').classList.add('hidden');
@@ -2294,6 +2319,15 @@ svg.leaflet-image-layer.leaflet-interactive path {
       const nearest = warning.matches[0];
       $('mapWarningBanner').textContent = (warning.matches.length > 1 ? warning.matches.length + ' known sites are' : 'A known site is')
         + ' nearby (nearest ' + formatDistance(nearest.dist) + ') — check the map before registering a new one.';
+      if (warning.stage === 'early') {
+        // Nothing's been submitted yet at this stage — the new-site form hasn't even been filled
+        // in — so the copy shouldn't talk about "registering anyway".
+        $('mapWarningContinueBtn').textContent = "Continue — it's a different site";
+        $('mapWarningCancelBtn').textContent = siteFlowPurpose === 'finalize' ? 'Use the nearby site instead' : "Cancel — don't register";
+      } else {
+        $('mapWarningContinueBtn').textContent = 'Register the new site anyway';
+        $('mapWarningCancelBtn').textContent = "Cancel — don't register";
+      }
     }
     if (!siteMap) siteMap = L.map('leafletMap');
     setMapTileLayer(navigator.onLine);
@@ -2309,11 +2343,47 @@ svg.leaflet-image-layer.leaflet-interactive path {
   $('mapOverlay').addEventListener('click', (e) => {
     if (e.target === $('mapOverlay')) $('mapOverlay').classList.remove('show');
   });
-  // Both leave currentSite (the new-site fields the crew already filled in) untouched and just
-  // hide the overlay — Cancel returns to the still-filled-in form with nothing saved; Continue
-  // finalizes exactly the record that would have been saved before the warning fired.
-  $('mapWarningCancelBtn').addEventListener('click', () => $('mapOverlay').classList.remove('show'));
-  $('mapWarningContinueBtn').addEventListener('click', finishSiteConfirmation);
+  $('mapWarningCancelBtn').addEventListener('click', () => {
+    const info = mapWarningInfo;
+    if (!info || info.stage === 'late') {
+      // Late stage (save-time check): currentSite/the filled-in new-site form are left untouched
+      // — just hide the overlay so the crew lands back on the still-filled-in form.
+      $('mapOverlay').classList.remove('show');
+      return;
+    }
+    if (siteFlowPurpose === 'registerOnly') {
+      // Early stage, day-trip shortcut: no survey is waiting to be attached to a site, so
+      // cancelling just abandons the registration and returns to the main screen.
+      $('mapOverlay').classList.remove('show');
+      $('siteOverlay').classList.remove('show');
+      return;
+    }
+    // Early stage, finalize flow: keep the "attach this search to a site" flow moving instead of
+    // dropping the crew back into an empty new-site form — switch to the existing-site tab and
+    // reopen the ordinary (non-warning) map picker focused on the nearby site, popup already open,
+    // so tapping "Use this site" is one step away.
+    const nearestId = info.matches[0].site.id;
+    siteMode = 'existing';
+    document.querySelectorAll('.siteModeBtn').forEach(b => b.classList.toggle('active', b.dataset.val === 'existing'));
+    $('existingSitePanel').classList.remove('hidden');
+    $('newSitePanel').classList.add('hidden');
+    openMapPicker();
+    // Queued after openMapPicker's own setTimeout(0) (invalidateSize/fitBounds), so the map's size
+    // is correct before flying to the marker.
+    setTimeout(() => {
+      const marker = siteMarkersById.get(nearestId);
+      if (marker) { siteMap.flyTo(marker.getLatLng(), 16); marker.openPopup(); }
+    }, 0);
+  });
+  $('mapWarningContinueBtn').addEventListener('click', () => {
+    if (mapWarningInfo && mapWarningInfo.stage === 'early') {
+      // Nothing to submit yet — just acknowledge and let the crew fill in the (already open)
+      // new-site form as normal. The late/save-time check still runs when they hit "Register site".
+      $('mapOverlay').classList.remove('show');
+      return;
+    }
+    finishSiteConfirmation();
+  });
 
   $('mapSearch').addEventListener('input', () => {
     const q = $('mapSearch').value.trim().toLowerCase();
