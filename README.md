@@ -38,7 +38,12 @@ can finish setting itself up for offline use — after that it'll launch instant
 
 If your phone asks for camera or location permission the first time you use the QR scanner or
 register a new site, allow it — the camera is only used to read the QR code, and location is only
-used to prefill a new site's coordinates (you can always edit them by hand).
+used to prefill a new site's coordinates (you can always edit them by hand). If location isn't
+working, the app will pop up a message explaining why (e.g. permission is off, or GPS/location
+services are turned off on the phone) the next time you open it — on Android this is sometimes a
+separate permission from the one Chrome itself asks for, under your phone's **Settings → Apps →
+Chrome → Permissions → Location**. Either way, you can always type a new site's coordinates in by
+hand instead of relying on GPS.
 
 ## Using it in the field
 
