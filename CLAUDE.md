@@ -125,7 +125,11 @@ Organized into commented sections in the single `<script>` block (search for `//
    for the existing-site path, shared by every UI that can produce a site id — the list row click and
    the map marker popup's button both funnel through it), merges it with `pendingSurvey`, and *that's*
    the point the record is actually saved/queued (`finishSiteConfirmation()`) — the app then resets to
-   a fresh idle timer for the next visit. There's no persistent "session" wrapper like goanna's
+   a fresh idle timer for the next visit, and a brief auto-dismissing toast (`showToast()`, the only
+   toast/snackbar mechanism in the app — a fixed-position `#toast` element outside the overlay system
+   so it survives every overlay closing at once) confirms "Search record saved" / "New site
+   registered", since otherwise the screen just flicks back to idle with no feedback. There's no
+   persistent "session" wrapper like goanna's
    hunting session: each site visit is one standalone submission, matching the Fulcrum data model
    this app replaces (see "Fulcrum migration" below). Backing out of the site sheet without confirming
    (backdrop tap) re-opens the survey-results sheet rather than discarding the search — its field
@@ -168,6 +172,14 @@ Organized into commented sections in the single `<script>` block (search for `//
    (`captureCurrentPositionForSiteSelection()`) and shared by both the map's "you are here" marker and
    the list's distance sort, rather than each requesting location separately.
 
+   The picker always opens at a **~300 m radius** view (`setInitialMapView()` →
+   `fitBounds(L.latLng(...).toBounds(600), ...)`), centred on the crew's fix, or on the fixed West
+   Kimberley fallback point (`[-18.0, 124.0]`) when there's no fix yet — deliberately *not* an
+   all-sites overview, which across this landscape is a near-continental zoom. If the fix lands after
+   the map is already open (the sheet's GPS request races the "View on map" tap),
+   `mapPendingInitialRecenter` lets `captureCurrentPositionForSiteSelection()`'s callback re-centre it
+   once — cancelled if the crew pans first (`dragstart`).
+
    Tile image requests aren't special-cased in `sw.js` — its fetch handler already intercepts every
    GET request with no origin filter (see "PWA shell" below), so OSM tiles get opportunistically
    cached alongside the app shell for free, meaning a recently-viewed area stays visible offline next
@@ -186,7 +198,8 @@ Organized into commented sections in the single `<script>` block (search for `//
    but swaps in a warning banner, a `.newSiteMarker`-styled pin at the proposed coordinates (distinct
    from the GPS "you are here" marker, since these coordinates may have been hand-edited away from
    the live GPS fix), a tight `fitBounds` around just the proposed point and the nearby site(s)
-   instead of the full known-sites view, and two explicit actions in place of the normal flow
+   instead of the ordinary picker's ~300 m current-location view, and two explicit actions in place
+   of the normal flow
    (`#mapWarningCancelBtn`/`#mapWarningContinueBtn`) — "Cancel" just closes the overlay with nothing
    saved, "Register anyway" calls the same `finishSiteConfirmation()` that would have run without the
    warning. Existing-site popups' "Use this site" button is suppressed while `mapWarningActive` is

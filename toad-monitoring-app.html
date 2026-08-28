@@ -289,6 +289,29 @@
 
   .hidden { display: none !important; }
 
+  /* Transient confirmation toast — fixed to the viewport so it survives the overlays
+     closing on save; only mechanism of its kind in the app. */
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%) translateY(8px);
+    z-index: 10000;
+    max-width: calc(100vw - 32px);
+    padding: 12px 20px;
+    border-radius: 999px;
+    background: var(--rock);
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    text-align: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
   /* Modal / bottom sheets */
   .overlay {
     position: fixed; inset: 0;
@@ -1536,6 +1559,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
   </div>
 </div>
 
+<!-- Transient save-confirmation toast -->
+<div id="toast" role="status" aria-live="polite" class="hidden"></div>
+
 <script>
   /* jsQR v1.4.0 — pure-JavaScript QR code reader, vendored inline (offline-first, no build step).
      https://github.com/cozmo/jsQR — Copyright jsQR contributors, Apache License 2.0.
@@ -1803,7 +1829,16 @@ svg.leaflet-image-layer.leaflet-interactive path {
     getLocation(pos => {
       currentPosition = { lat: pos.coords.latitude, lon: pos.coords.longitude };
       renderSiteList();
-      if (siteMap) placeYouAreHereMarker();
+      if (siteMap) {
+        placeYouAreHereMarker();
+        // If the map picker opened before this fix landed, it's currently showing the
+        // fixed-region 300 m view — snap it to the crew's actual location now (unless
+        // they've already started panning, or it's the proximity-warning map).
+        if (mapPendingInitialRecenter && !mapWarningActive) {
+          mapPendingInitialRecenter = false;
+          setInitialMapView(null);
+        }
+      }
     }, () => { /* left null — map/list fall back to their no-position behavior; the app-load
                   proactive check already surfaces a broken device/permission once per session */ });
   }
@@ -2049,12 +2084,31 @@ svg.leaflet-image-layer.leaflet-interactive path {
     $('elapsed').textContent = '00:00';
   }
 
+  // Brief bottom-of-screen confirmation that auto-dismisses. Used after a record is saved,
+  // where every overlay closes at once and the app would otherwise flick back to idle with
+  // no feedback that anything happened.
+  let toastHideTimer = null, toastGoneTimer = null;
+  function showToast(msg) {
+    const el = $('toast');
+    clearTimeout(toastHideTimer);
+    clearTimeout(toastGoneTimer);
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    void el.offsetWidth; // reflow so back-to-back calls re-run the transition
+    el.classList.add('show');
+    toastHideTimer = setTimeout(() => {
+      el.classList.remove('show');
+      toastGoneTimer = setTimeout(() => el.classList.add('hidden'), 250); // after the fade-out
+    }, 2600);
+  }
+
   // Runs once currentSite is set, regardless of how it got set (existing-site list row, map
   // marker popup, or the new-site registration form) — closes both site-selection overlays and
   // drives the registerOnly/finalize record-building branch.
   function finishSiteConfirmation() {
     $('siteOverlay').classList.remove('show');
     $('mapOverlay').classList.remove('show');
+    mapPendingInitialRecenter = false;
 
     if (siteFlowPurpose === 'registerOnly') {
       const now = new Date();
@@ -2071,6 +2125,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       });
       finalizeRecord(rec);
       currentSite = null;
+      showToast('New site registered');
     } else {
       const rec = buildRecord({
         survey_conducted: 'yes',
@@ -2080,6 +2135,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       });
       finalizeRecord(rec);
       resetForNextVisit();
+      showToast('Search record saved');
     }
   }
 
@@ -2160,6 +2216,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // Continue there really does submit. The two stages need different Continue/Cancel behavior —
   // see the mapWarningContinueBtn/mapWarningCancelBtn handlers below.
   let mapWarningInfo = null;
+  // True when the map picker was opened (non-warning) before a GPS fix was available, so the
+  // late-arriving fix knows to re-centre the map from the fixed-region fallback view to the
+  // crew's location. Cleared once that happens, on first user pan, or on overlay close.
+  let mapPendingInitialRecenter = false;
 
   function siteDivIcon(pending) {
     return L.divIcon({ className: '', html: '<div class="siteMarker' + (pending ? ' pending' : '') + '"></div>', iconSize: [16, 16] });
@@ -2257,14 +2317,16 @@ svg.leaflet-image-layer.leaflet-interactive path {
       siteMap.fitBounds(points, { padding: [60, 60], maxZoom: 17 });
       return;
     }
-    const points = allKnownSites()
-      .filter(s => Number.isFinite(s.latitude) && Number.isFinite(s.longitude))
-      .map(s => [s.latitude, s.longitude]);
-    if (currentPosition) points.push([currentPosition.lat, currentPosition.lon]);
-    if (points.length > 0) siteMap.fitBounds(points, { padding: [40, 40], maxZoom: 15 });
-    // Fixed fallback: no GPS and no known sites yet — centers roughly over the West
-    // Kimberley/Fitzroy Valley survey region rather than showing a blank world map.
-    else siteMap.setView([-18.0, 124.0], 7);
+    // Always a ~300 m radius view — the crew almost always wants "which waterpoint near me
+    // is this?", not a whole-region overview. Centre on the live fix when there is one, else
+    // the fixed West Kimberley / Fitzroy Valley point (a late fix re-centres via
+    // mapPendingInitialRecenter). L.LatLng.toBounds(sizeInMeters) returns a LatLngBounds
+    // sizeInMeters/2 in each direction, so toBounds(600) is a 300 m radius box — no
+    // meters-to-zoom math and no map layer needed.
+    const c = currentPosition
+      ? [currentPosition.lat, currentPosition.lon]
+      : [-18.0, 124.0];
+    siteMap.fitBounds(L.latLng(c[0], c[1]).toBounds(600), { padding: [24, 24], maxZoom: 17 });
   }
 
   // warning, when passed, is { lat, lon, matches, stage } describing a new-site registration
@@ -2273,6 +2335,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
   function openMapPicker(warning) {
     mapWarningActive = !!warning;
     mapWarningInfo = warning || null;
+    // Non-warning picker opened without a fix yet → let a late fix re-centre it (see the
+    // dragstart handler below and captureCurrentPositionForSiteSelection).
+    mapPendingInitialRecenter = !warning && !currentPosition;
     $('mapOverlay').classList.add('show');
     $('mapSearch').value = '';
     $('mapSearchResults').classList.add('hidden');
@@ -2292,7 +2357,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
         $('mapWarningCancelBtn').textContent = "Cancel — don't register";
       }
     }
-    if (!siteMap) siteMap = L.map('leafletMap');
+    if (!siteMap) {
+      siteMap = L.map('leafletMap');
+      // A real user pan/pinch cancels any pending late-fix re-centre — dragstart fires only
+      // on genuine gestures, not on programmatic fitBounds/flyTo.
+      siteMap.on('dragstart', () => { mapPendingInitialRecenter = false; });
+    }
     setMapTileLayer(navigator.onLine);
     plotSiteMarkers();
     if (warning) { clearYouAreHereMarker(); placeProposedSiteMarker(warning.lat, warning.lon); }
@@ -2302,9 +2372,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
     setTimeout(() => { siteMap.invalidateSize(); setInitialMapView(warning); }, 0);
   }
 
-  $('mapCloseBtn').addEventListener('click', () => $('mapOverlay').classList.remove('show'));
+  function closeMapOverlay() {
+    $('mapOverlay').classList.remove('show');
+    mapPendingInitialRecenter = false;
+  }
+  $('mapCloseBtn').addEventListener('click', closeMapOverlay);
   $('mapOverlay').addEventListener('click', (e) => {
-    if (e.target === $('mapOverlay')) $('mapOverlay').classList.remove('show');
+    if (e.target === $('mapOverlay')) closeMapOverlay();
   });
   $('mapWarningCancelBtn').addEventListener('click', () => {
     const info = mapWarningInfo;
