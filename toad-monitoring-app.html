@@ -1415,37 +1415,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
           <button type="button" class="originBtn" data-val="artificial">Artificial</button>
         </div>
       </div>
-
-      <div class="field">
-        <label>Native title area</label>
-        <select id="newSiteNta">
-          <option value="none">Not on a native title area</option>
-          <option value="NTA-KJ">Karajarri</option>
-          <option value="NTA-NYKJ">Nyangumarta-Karajarri shared country</option>
-          <option value="NTA-NY">Nyangumarta</option>
-          <option value="NTA-YWR">Yawuru</option>
-          <option value="NTA-NML">Nyamal</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>Property</label>
-        <select id="newSiteProperty">
-          <option value="none">Not on a known property</option>
-          <option value="PROP-FDS">Frazier Downs Station</option>
-          <option value="PROP-SHAMS">Shamrock Station</option>
-          <option value="PROP-APS">Anna Plains Station</option>
-          <option value="PROP-NDS">Nita Downs Station</option>
-          <option value="PROP-SHAMG">Shamrock Gardens</option>
-          <option value="PROP-SHEL">Shelamar Station</option>
-          <option value="PROP-RPS">Roebuck Plains Station</option>
-          <option value="PROP-DD">Dampier Downs</option>
-          <option value="PROP-LIV">Liveringa</option>
-          <option value="PROP-MYR">Myroodah</option>
-          <option value="PROP-YM">Yakka Munga</option>
-          <option value="PROP-YEE">Yeeda</option>
-        </select>
-      </div>
     </div>
 
     <button id="confirmSiteBtn">Use this site</button>
@@ -1613,29 +1582,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
     soak_or_spring: 'Soak or spring',
     other: 'Other'
   };
-  const NTA_LABELS = {
-    none: 'Not on a native title area',
-    'NTA-KJ': 'Karajarri',
-    'NTA-NYKJ': 'Nyangumarta-Karajarri shared country',
-    'NTA-NY': 'Nyangumarta',
-    'NTA-YWR': 'Yawuru',
-    'NTA-NML': 'Nyamal'
-  };
-  const PROPERTY_LABELS = {
-    none: 'Not on a known property',
-    'PROP-FDS': 'Frazier Downs Station',
-    'PROP-SHAMS': 'Shamrock Station',
-    'PROP-APS': 'Anna Plains Station',
-    'PROP-NDS': 'Nita Downs Station',
-    'PROP-SHAMG': 'Shamrock Gardens',
-    'PROP-SHEL': 'Shelamar Station',
-    'PROP-RPS': 'Roebuck Plains Station',
-    'PROP-DD': 'Dampier Downs',
-    'PROP-LIV': 'Liveringa',
-    'PROP-MYR': 'Myroodah',
-    'PROP-YM': 'Yakka Munga',
-    'PROP-YEE': 'Yeeda'
-  };
 
   function newId() {
     return crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -1765,8 +1711,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
       waterpoint_type: (row.waterpoint_type || '').split(' ').filter(Boolean),
       waterpoint_type_other: row.waterpoint_type_other || '',
       water_origin: row.water_origin || '',
-      native_title_area: row.native_title_area || 'none',
-      property: row.property || 'none',
       source: 'remote'
     };
   }
@@ -1811,8 +1755,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
           waterpoint_type: r.waterpoint_type || [],
           waterpoint_type_other: r.waterpoint_type_other || '',
           water_origin: r.water_origin || '',
-          native_title_area: r.native_title_area || 'none',
-          property: r.property || 'none',
           source: r.status === 'synced' ? 'remote' : 'local'
         });
       }
@@ -1894,8 +1836,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
     $('waterpointOtherText').value = '';
     $('waterpointOtherText').classList.add('hidden');
     document.querySelectorAll('.originBtn').forEach(b => b.classList.remove('active'));
-    $('newSiteNta').value = 'none';
-    $('newSiteProperty').value = 'none';
     if (registerOnly) captureGpsForNewSite();
     else captureCurrentPositionForSiteSelection();
     renderSiteList();
@@ -1964,8 +1904,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
   function siteBadges(site) {
     const badges = [];
     if (site.waterpoint_type.length) badges.push(site.waterpoint_type.map(w => WATERPOINT_LABELS[w] || w).join(', '));
-    if (site.native_title_area && site.native_title_area !== 'none') badges.push(NTA_LABELS[site.native_title_area] || site.native_title_area);
-    if (site.property && site.property !== 'none') badges.push(PROPERTY_LABELS[site.property] || site.property);
     return badges;
   }
 
@@ -2088,8 +2026,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
       waterpoint_type: currentSite.waterpoint_type,
       waterpoint_type_other: currentSite.waterpoint_type_other,
       water_origin: currentSite.water_origin,
-      native_title_area: currentSite.native_title_area,
-      property: currentSite.property,
       status: 'pending',   // pending | synced | failed
       attempts: 0,
       lastError: null,
@@ -2161,9 +2097,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       site_lon: site.longitude,
       waterpoint_type: site.waterpoint_type,
       waterpoint_type_other: site.waterpoint_type_other,
-      water_origin: site.water_origin,
-      native_title_area: site.native_title_area,
-      property: site.property
+      water_origin: site.water_origin
     };
     finishSiteConfirmation();
   }
@@ -2182,9 +2116,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       site_lon: +$('newSiteLon').value,
       waterpoint_type: Array.from(document.querySelectorAll('.wpChk:checked')).map(c => c.value),
       waterpoint_type_other: $('waterpointOtherText').value.trim(),
-      water_origin: originBtn ? originBtn.dataset.val : '',
-      native_title_area: $('newSiteNta').value,
-      property: $('newSiteProperty').value
+      water_origin: originBtn ? originBtn.dataset.val : ''
     };
     // currentSite stays set — openMapPicker's warning mode decides whether to actually finalize
     // (Register anyway) or leave it be (Cancel), so nothing is submitted yet either way.
@@ -2718,8 +2650,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <waterpoint_type>${escXml(wpTypes)}</waterpoint_type>
   <waterpoint_type_other>${escXml(rec.waterpoint_type_other || '')}</waterpoint_type_other>
   <water_origin>${escXml(rec.water_origin || '')}</water_origin>
-  <native_title_area>${escXml(rec.native_title_area || '')}</native_title_area>
-  <property>${escXml(rec.property || '')}</property>
   <survey_conducted>${escXml(rec.survey_conducted)}</survey_conducted>
   <visit_date>${escXml(rec.visit_date)}</visit_date>
   <visit_time>${escXml(rec.visit_time)}</visit_time>

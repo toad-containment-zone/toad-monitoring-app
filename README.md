@@ -57,10 +57,9 @@ hand instead of relying on GPS.
     too, and known sites are marked), or use **or choose from a list** to search by name instead if
     GPS or the map isn't cooperating.
   - **Register new site** if this waterpoint hasn't been surveyed before — fill in its location
-    (GPS-prefilled, but you can correct it by hand), name, waterpoint type, native title area, and
-    property once; you won't need to re-enter them on future visits. If the coordinates are close to
-    a site that's already known, the app shows a map warning first so you can check it isn't a
-    duplicate before saving.
+    (GPS-prefilled, but you can correct it by hand), name, and waterpoint type once; you won't need
+    to re-enter them on future visits. If the coordinates are close to a site that's already known,
+    the app shows a map warning first so you can check it isn't a duplicate before saving.
 - Setting up new sites for a future visit without timing a search there yet? Tap **Register a new
   site** on the main screen — it registers the site straight away with no timer or survey step
   involved.

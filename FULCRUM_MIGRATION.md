@@ -26,6 +26,11 @@ one, or split one real site into several duplicate entities.
 
 ### Site-level (Fulcrum) → `toad_monitoring_sites` entity properties
 
+> **Note (post-migration):** the live app no longer collects `native_title_area` or `property` —
+> the `data-warehousing` ETL derives both from record geolocation. The two rows below are kept for
+> historical context (they describe the entity properties as they were when this migration was
+> planned); Central still holds those property columns for sites created during the migration.
+
 | Fulcrum field       | Entity property        | Notes |
 |----------------------|-------------------------|-------|
 | latitude              | `latitude`              | decimal |
