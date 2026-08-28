@@ -61,9 +61,10 @@ Organized into commented sections in the single `<script>` block (search for `//
    `resolveSubmissionUrl()` works) and `records` (survey history), persisted to `localStorage`
    under `tcz_toad_settings_v1` / `tcz_toad_records_v1`. A third store, `tcz_toad_sites_cache_v1`,
    holds the last-fetched list of known sites (see below). Unlike the goanna app, there's no global
-   team-name or native-title-area setting — native title area is a **site** property here (sites
-   span a landscape, so it varies per site, whereas goanna hunts happen in one contained area per
-   session).
+   team-name setting. Native title area and pastoral property were once captured here as per-site
+   fields, but the app no longer collects them — the data warehouse's ETL now derives both from
+   each record's geolocation (spatial join against NTA / station boundaries), so the reporting
+   layer is the single source of truth. See "Removed: native title area & property" below.
 2. **Known sites (ODK Entities)** — this is the part with no goanna-app precedent. Sites are
    registered once and reused across years, so they're the `toad_monitoring_sites` entity dataset
    declared on `toad_detection_survey.xlsx`'s `entities` sheet. The app needs an offline-capable way
@@ -120,7 +121,7 @@ Organized into commented sections in the single `<script>` block (search for `//
    registration form (lat/lon — GPS-prefilled *but manually editable*, unlike the goanna app's
    GPS-only capture, because site coordinates are entered once and reused for years so it's worth
    letting a crew correct a bad GPS fix; site name; waterpoint type checkboxes; natural/artificial
-   toggle; native title area; property). Confirming builds `currentSite` (via `confirmExistingSite()`
+   toggle). Confirming builds `currentSite` (via `confirmExistingSite()`
    for the existing-site path, shared by every UI that can produce a site id — the list row click and
    the map marker popup's button both funnel through it), merges it with `pendingSurvey`, and *that's*
    the point the record is actually saved/queued (`finishSiteConfirmation()`) — the app then resets to
@@ -268,7 +269,7 @@ worth a quick check before relying on it in the field.
 ### PWA shell (`manifest.json`, `sw.js`, `index.html`)
 
 Identical mechanism to the goanna app — see its CLAUDE.md. `CACHE_NAME` here is
-`tcz-toad-shell-v1`; bump it whenever you change what needs to be cached.
+`tcz-toad-shell-v6`; bump it whenever you change what needs to be cached.
 
 ### Styling
 
@@ -277,26 +278,25 @@ its exact palette so the two apps are visually distinguishable at a glance in th
 have both installed): swamp-green/clay/cream (`--marsh`, `--clay`, `--rock`, `--cream`) instead of
 goanna's olive/dirt. Same single-column mobile shell, same bottom-sheet modal pattern.
 
-## Shared taxonomy
+## Removed: native title area & property
 
-Native title area is a site property (not a global setting — see above). The `nta_choices` list in
-`toad_detection_survey.xlsx` and the `#newSiteNta` `<select>` in the HTML are a hand-copied snapshot
-of the *active* rows in `../shared-taxonomy/taxonomy/native_title_areas.csv` (currently: KJ, NYKJ,
-NY, YWR, NML) — that repo is the authoritative source; re-sync both places if it changes. The
-submitted value is the NTA's mnemonic `nta_id`, not a display label, so it joins directly against
-that table downstream. (The goanna app's own copy of this list has drifted — its `#cfgNta` dropdown
-is missing YWR/NML even though its CLAUDE.md claims otherwise — this app's copy was taken directly
-from the current CSV to start clean.)
+The app used to capture two per-site fields — **native title area** (`native_title_area`, mnemonic
+`nta_id` values like `NTA-KJ`) and **pastoral property** (`property`, mnemonic `property_id` values
+like `PROP-YM`) — as `<select>`s on the new-site form (`#newSiteNta` / `#newSiteProperty`), backed
+by `nta_choices` / `property_choices` in `toad_detection_survey.xlsx` and hand-copied from
+`../shared-taxonomy/taxonomy/native_title_areas.csv` / `properties.csv`.
 
-Property (pastoral station) is likewise a site property, added when migrating historical Fulcrum
-data (see "Fulcrum migration" below). The `property_choices` list in `toad_detection_survey.xlsx`
-and the `#newSiteProperty` `<select>` in the HTML are a hand-copied snapshot of
-`../shared-taxonomy/taxonomy/properties.csv` — that repo is the authoritative source; re-sync both
-places if it changes. The submitted value is the property's mnemonic `property_id` (e.g.
-`PROP-YM`), not a display label. `properties.csv` previously only covered Karajarri/Nyangumarta-area
-stations; five Fitzroy Valley stations (Dampier Downs, Liveringa, Myroodah, Yakka Munga, Yeeda) were
-added there to cover the Fulcrum migration's source sites — see `FULCRUM_MIGRATION.md`'s property
-mapping table before assuming a station name in a new import already has a code.
+They were dropped once the full pipeline (app → ODK Central → ETL → reporting app) was in place:
+the `data-warehousing` ETL now derives both from each record's geolocation via a spatial join
+against NTA / station boundaries, so collecting them in the field was redundant. Removed
+end-to-end — the two `survey` rows and both choice lists in the XLSForm, the `<select>`s and
+`NTA_LABELS` / `PROPERTY_LABELS` maps and `siteBadges()` entries in the HTML, the
+`<native_title_area>` / `<property>` elements in `buildSubmissionXml()`, and the CSV columns
+`siteFromCsvRow()` used to read. The `toad_monitoring_sites` entity dataset in Central keeps its
+existing `native_title_area` / `property` property columns (Central never deletes entity
+properties) with their historical values; new submissions simply don't write them and the app no
+longer reads them. `../shared-taxonomy` remains authoritative for the ETL's boundary/reference
+data — the app just no longer carries a snapshot of it.
 
 ## Fulcrum migration
 
