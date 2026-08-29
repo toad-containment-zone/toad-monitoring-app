@@ -446,6 +446,19 @@
     margin-top: 10px;
     line-height: 1.4;
   }
+  .gpsStatus {
+    font-size: 12px;
+    color: var(--muted);
+    background: #f1ece0;
+    border-radius: 7px;
+    padding: 7px 10px;
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .gpsStatus.warn {
+    color: var(--err);
+    background: #f7e3df;
+  }
 
   /* site picker */
   .siteList { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; margin-top: 4px; }
@@ -1415,6 +1428,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
         </div>
       </div>
       <button type="button" class="locbtn" id="useGpsBtn">📍 Use current location</button>
+      <div id="newSiteGpsStatus" class="gpsStatus hidden"></div>
 
       <div class="field">
         <label>Type of waterpoint</label>
@@ -1797,18 +1811,61 @@ svg.leaflet-image-layer.leaflet-interactive path {
   let siteMode = 'existing';
   let selectedExistingSiteId = null;
   let siteFlowPurpose = 'finalize'; // 'finalize' (end of a timed visit) | 'registerOnly' (day-trip shortcut)
-  let currentPosition = null;  // { lat, lon } — captured once per site-selection step, shared by
-                                // the map's "you are here" marker and the list's distance sort.
+  let currentPosition = null;  // { lat, lon, accuracy } — sampled during the site-selection step,
+                                // refined as fixes improve; shared by the map's "you are here"
+                                // marker/accuracy ring and the list's distance sort.
 
   // Wraps getCurrentPosition with a sane timeout (there is none by default, so a stuck fix
   // could otherwise hang forever with neither callback ever firing) and high accuracy, since
   // this is used outdoors where that costs little. Ported from goanna-hunting-app.html's
-  // identical helper.
+  // identical helper. Now used only for the passive app-load permission/hardware check —
+  // real coordinate capture goes through sampleLocation() below.
   function getLocation(onSuccess, onError) {
     if (!navigator.geolocation) { onError({ code: 0 }); return; }
     navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-      enableHighAccuracy: true, timeout: 8000, maximumAge: 0
+      enableHighAccuracy: true, timeout: 15000, maximumAge: 0
     });
+  }
+
+  const GPS_TARGET_ACCURACY_M = 10;    // stop sampling once the fix is at least this good
+  const GPS_SAMPLE_MAX_MS     = 45000; // ...otherwise stop trying to improve it after this long
+  const GPS_GATE_WARN_M       = 25;    // warn (but don't block) if the best fix is worse than this
+
+  // Sampling GPS capture. getCurrentPosition() returns the first fix the platform has, which on
+  // a cold start is often a coarse wifi/cell fix tens to hundreds of metres out; GNSS then keeps
+  // improving for 30-60s. So instead of one fix, watch for up to GPS_SAMPLE_MAX_MS, keep the
+  // smallest-accuracy reading seen, and stop early once it's within GPS_TARGET_ACCURACY_M.
+  // onProgress fires on every fix (for the live "±N m" UI); onDone fires once with the best
+  // Position; onError fires only if no fix ever arrived. Returns stop(abort) — call stop() to
+  // finish early with the best fix so far ("use this fix now"), stop(true) to abort silently
+  // (sheet closed). activeGpsStop tracks the current sampler so it can be aborted/restarted.
+  let activeGpsStop = null;
+  function sampleLocation(onProgress, onDone, onError) {
+    if (activeGpsStop) activeGpsStop(true);
+    if (!navigator.geolocation) { onError({ code: 0 }); return () => {}; }
+    let best = null, settled = false;
+    const stop = (abort) => {
+      if (settled) return;
+      settled = true;
+      navigator.geolocation.clearWatch(id);
+      clearTimeout(timer);
+      if (activeGpsStop === stop) activeGpsStop = null;
+      if (abort) return;
+      if (best) onDone(best); else onError({ code: 3 });
+    };
+    const id = navigator.geolocation.watchPosition(
+      pos => {
+        if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
+        onProgress(best);
+        if (best.coords.accuracy <= GPS_TARGET_ACCURACY_M) stop();
+      },
+      // A transient watch error after we already have a fix shouldn't discard a good sample.
+      err => { if (!best) { settled = true; clearTimeout(timer); if (activeGpsStop === stop) activeGpsStop = null; onError(err); } },
+      { enableHighAccuracy: true, timeout: GPS_SAMPLE_MAX_MS, maximumAge: 0 }
+    );
+    const timer = setTimeout(() => stop(), GPS_SAMPLE_MAX_MS);
+    activeGpsStop = stop;
+    return stop;
   }
 
   function geoErrorMessage(err) {
@@ -1826,20 +1883,24 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // the map and the list view read the same fix rather than each requesting location separately.
   function captureCurrentPositionForSiteSelection() {
     currentPosition = null;
-    getLocation(pos => {
-      currentPosition = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    let first = true;
+    sampleLocation(best => {
+      currentPosition = { lat: best.coords.latitude, lon: best.coords.longitude, accuracy: best.coords.accuracy };
       renderSiteList();
       if (siteMap) {
         placeYouAreHereMarker();
-        // If the map picker opened before this fix landed, it's currently showing the
+        // If the map picker opened before the first fix landed, it's currently showing the
         // fixed-region 300 m view — snap it to the crew's actual location now (unless
-        // they've already started panning, or it's the proximity-warning map).
-        if (mapPendingInitialRecenter && !mapWarningActive) {
+        // they've already started panning, or it's the proximity-warning map). Only on the
+        // first fix; later refinements shouldn't yank a map the crew may be reading.
+        if (first && mapPendingInitialRecenter && !mapWarningActive) {
           mapPendingInitialRecenter = false;
           setInitialMapView(null);
         }
       }
-    }, () => { /* left null — map/list fall back to their no-position behavior; the app-load
+      first = false;
+    }, () => { /* best fix already applied via onProgress */ },
+       () => { /* no fix — map/list fall back to their no-position behavior; the app-load
                   proactive check already surfaces a broken device/permission once per session */ });
   }
 
@@ -1867,6 +1928,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
     $('newSiteName').value = '';
     $('newSiteLat').value = '';
     $('newSiteLon').value = '';
+    newSiteGpsAccuracy = null;
+    resetGpsStatus();
     document.querySelectorAll('.wpChk').forEach(c => c.checked = false);
     $('waterpointOtherText').value = '';
     $('waterpointOtherText').classList.add('hidden');
@@ -2001,24 +2064,64 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // once per session via newSiteGpsWarned, so the crew isn't re-nagged on every visit once they've
   // already seen the message and know to enter coordinates by hand.
   let newSiteGpsWarned = false;
+  // Accuracy (metres) of the fix the lat/lon fields currently hold, or null when unknown —
+  // set to null the moment the crew hand-edits a coordinate, so the soft gate in confirmSiteBtn
+  // never second-guesses a manually corrected value.
+  let newSiteGpsAccuracy = null;
+  let gpsSampling = false;
+  const USE_GPS_LABEL = '📍 Use current location';
+
+  function resetGpsStatus() {
+    gpsSampling = false;
+    $('useGpsBtn').textContent = USE_GPS_LABEL;
+    $('newSiteGpsStatus').classList.add('hidden');
+    $('newSiteGpsStatus').classList.remove('warn');
+  }
+
   function captureGpsForNewSite(manual) {
-    getLocation(pos => {
-      $('newSiteLat').value = pos.coords.latitude.toFixed(5);
-      $('newSiteLon').value = pos.coords.longitude.toFixed(5);
+    gpsSampling = true;
+    $('newSiteGpsStatus').classList.remove('hidden', 'warn');
+    $('newSiteGpsStatus').textContent = 'Getting a GPS fix…';
+    sampleLocation(best => {
+      const acc = Math.round(best.coords.accuracy);
+      $('newSiteLat').value = best.coords.latitude.toFixed(5);
+      $('newSiteLon').value = best.coords.longitude.toFixed(5);
       updateConfirmSiteState();
-      // Check for nearby known sites as soon as a location is available, before the crew spends
-      // time filling in the rest of the new-site form — see checkNewSiteProximity's 'late'
+      $('useGpsBtn').textContent = '✓ Use this fix now (±' + acc + ' m)';
+      $('newSiteGpsStatus').textContent = best.coords.accuracy <= GPS_TARGET_ACCURACY_M
+        ? 'GPS fix ±' + acc + ' m'
+        : 'Improving GPS fix… ±' + acc + ' m (waiting for ±' + GPS_TARGET_ACCURACY_M + ' m)';
+    }, best => {
+      newSiteGpsAccuracy = best.coords.accuracy;
+      const acc = Math.round(best.coords.accuracy);
+      gpsSampling = false;
+      $('useGpsBtn').textContent = USE_GPS_LABEL;
+      if (best.coords.accuracy > GPS_GATE_WARN_M) {
+        $('newSiteGpsStatus').classList.add('warn');
+        $('newSiteGpsStatus').textContent = '⚠ Best GPS fix was only ±' + acc +
+          ' m — stand in the open with a clear view of the sky, or type the coordinates by hand.';
+      } else {
+        $('newSiteGpsStatus').classList.remove('warn');
+        $('newSiteGpsStatus').textContent = 'GPS fix ±' + acc + ' m';
+      }
+      // Check for nearby known sites once the fix has settled, before the crew spends time
+      // filling in the rest of the new-site form — see checkNewSiteProximity's 'late'
       // counterpart in confirmSiteBtn's handler for the final check at submit time.
-      checkNewSiteProximity(pos.coords.latitude, pos.coords.longitude, 'early');
+      checkNewSiteProximity(best.coords.latitude, best.coords.longitude, 'early');
     }, err => {
       // left blank if GPS fails — lat/lon stay manually editable
+      resetGpsStatus();
       if (manual || !newSiteGpsWarned) {
         alert(geoErrorMessage(err));
         newSiteGpsWarned = true;
       }
     });
   }
-  $('useGpsBtn').addEventListener('click', () => captureGpsForNewSite(true));
+  // Idle: start a sample. Mid-sample: accept the best fix so far right now.
+  $('useGpsBtn').addEventListener('click', () => {
+    if (gpsSampling && activeGpsStop) activeGpsStop();
+    else captureGpsForNewSite(true);
+  });
 
   document.querySelectorAll('.wpChk').forEach(chk => {
     chk.addEventListener('change', () => {
@@ -2035,7 +2138,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
     });
   });
 
-  ['newSiteLat', 'newSiteLon'].forEach(id => $(id).addEventListener('input', updateConfirmSiteState));
+  ['newSiteLat', 'newSiteLon'].forEach(id => $(id).addEventListener('input', () => {
+    newSiteGpsAccuracy = null;   // hand-edited — the GPS fix's accuracy no longer describes this value
+    // Don't let an in-flight sample keep overwriting what the crew is now typing.
+    if (gpsSampling && activeGpsStop) { activeGpsStop(true); resetGpsStatus(); }
+    updateConfirmSiteState();
+  }));
 
   function updateConfirmSiteState() {
     let ok = false;
@@ -2106,6 +2214,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // marker popup, or the new-site registration form) — closes both site-selection overlays and
   // drives the registerOnly/finalize record-building branch.
   function finishSiteConfirmation() {
+    if (activeGpsStop) activeGpsStop(true);
     $('siteOverlay').classList.remove('show');
     $('mapOverlay').classList.remove('show');
     mapPendingInitialRecenter = false;
@@ -2163,6 +2272,18 @@ svg.leaflet-image-layer.leaflet-interactive path {
       confirmExistingSite(selectedExistingSiteId);
       return;
     }
+    // Still sampling: lock in the best fix so far (this runs the sampler's onDone synchronously,
+    // setting newSiteGpsAccuracy and the proximity check) and let the crew confirm again — by
+    // which point the soft gate below has a real accuracy figure to check.
+    if (gpsSampling && activeGpsStop) { activeGpsStop(); return; }
+    // Soft gate: if the site's coordinates came straight from a poor GPS fix (not hand-corrected),
+    // give the crew one chance to reconsider — but never block. Mirrors goanna-hunting-app's
+    // save-without-location confirm().
+    if (newSiteGpsAccuracy != null && newSiteGpsAccuracy > GPS_GATE_WARN_M &&
+        !confirm('The best GPS fix here was only ±' + Math.round(newSiteGpsAccuracy) +
+                 ' m. Register the site with these coordinates anyway?')) {
+      return;
+    }
     const originBtn = document.querySelector('.originBtn.active');
     currentSite = {
       mode: 'new',
@@ -2182,6 +2303,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   $('siteOverlay').addEventListener('click', (e) => {
     if (e.target !== $('siteOverlay')) return;
+    if (activeGpsStop) activeGpsStop(true);
     $('siteOverlay').classList.remove('show');
     // Backing out mid-finalize shouldn't lose the just-recorded survey answers — the survey
     // sheet's fields are still populated (nothing clears them until confirmSiteBtn fires), so
@@ -2202,6 +2324,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   let siteMarkersLayer = null;
   let siteMarkersById = new Map();
   let youAreHereMarker = null;
+  let youAreHereAccuracyCircle = null;
   let proposedSiteMarker = null;
   let osmTileLayer = null;
   // True only while the proximity-warning map is on screen (opened from checkNewSiteProximity when
@@ -2272,10 +2395,18 @@ svg.leaflet-image-layer.leaflet-interactive path {
     const latlng = [currentPosition.lat, currentPosition.lon];
     if (youAreHereMarker) youAreHereMarker.setLatLng(latlng);
     else youAreHereMarker = L.marker(latlng, { icon: youAreHereDivIcon(), zIndexOffset: 1000 }).addTo(siteMap);
+    // Ring showing the fix's reported accuracy, so the crew can see how tight it is as it settles.
+    if (Number.isFinite(currentPosition.accuracy)) {
+      if (youAreHereAccuracyCircle) youAreHereAccuracyCircle.setLatLng(latlng).setRadius(currentPosition.accuracy);
+      else youAreHereAccuracyCircle = L.circle(latlng, {
+        radius: currentPosition.accuracy, color: '#59190c', weight: 1, opacity: 0.5, fillOpacity: 0.08
+      }).addTo(siteMap);
+    }
   }
 
   function clearYouAreHereMarker() {
     if (youAreHereMarker) { siteMap.removeLayer(youAreHereMarker); youAreHereMarker = null; }
+    if (youAreHereAccuracyCircle) { siteMap.removeLayer(youAreHereAccuracyCircle); youAreHereAccuracyCircle = null; }
   }
 
   // The proximity-warning map's marker for the site about to be registered — deliberately separate
@@ -2834,8 +2965,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
   if (navigator.onLine) trySyncAll();
   // Proactively surface a broken device/browser location setup the moment the app opens, rather
   // than only discovering it deep inside the new-site form — mirrors goanna-hunting-app.html's
-  // identical init-time check.
-  getLocation(() => {}, err => alert(geoErrorMessage(err)));
+  // identical init-time check. A slow first fix (TIMEOUT / code 3) isn't a permissions or
+  // hardware fault and shouldn't nag on launch — the sampling capture handles slow fixes fine.
+  getLocation(() => {}, err => { if (err && err.code !== 3) alert(geoErrorMessage(err)); });
 
 </script>
 </body>

@@ -121,7 +121,15 @@ Organized into commented sections in the single `<script>` block (search for `//
    registration form (lat/lon — GPS-prefilled *but manually editable*, unlike the goanna app's
    GPS-only capture, because site coordinates are entered once and reused for years so it's worth
    letting a crew correct a bad GPS fix; site name; waterpoint type checkboxes; natural/artificial
-   toggle). Confirming builds `currentSite` (via `confirmExistingSite()`
+   toggle). GPS capture is a **sampler**, not a single fix: `sampleLocation()` (next to
+   `getLocation()`) runs `watchPosition` for up to 45 s, keeps the smallest-`accuracy` reading,
+   stops early at ≤10 m, shows a live "±N m" readout (`#newSiteGpsStatus`), lets the crew accept
+   the current fix early via `#useGpsBtn`, and — non-blocking, mirroring the goanna app's
+   save-without-location `confirm()` — warns at confirm time if the best fix was worse than 25 m
+   and wasn't hand-corrected. `coords.accuracy` is used only for the UI/gate and the map "you are
+   here" ring; it is **not** stored on the record or in the submission — `<site_lat>`/`<site_lon>`
+   are unchanged. The finalize flow's shared position fix (`captureCurrentPositionForSiteSelection`,
+   for the map marker + list distance sort) uses the same sampler. Confirming builds `currentSite` (via `confirmExistingSite()`
    for the existing-site path, shared by every UI that can produce a site id — the list row click and
    the map marker popup's button both funnel through it), merges it with `pendingSurvey`, and *that's*
    the point the record is actually saved/queued (`finishSiteConfirmation()`) — the app then resets to
@@ -282,7 +290,7 @@ worth a quick check before relying on it in the field.
 ### PWA shell (`manifest.json`, `sw.js`, `index.html`)
 
 Identical mechanism to the goanna app — see its CLAUDE.md. `CACHE_NAME` here is
-`tcz-toad-shell-v6`; bump it whenever you change what needs to be cached.
+`tcz-toad-shell-v8`; bump it whenever you change what needs to be cached.
 
 ### Styling
 
