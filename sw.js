@@ -3,7 +3,7 @@
 // fetch on every load keeps the cache fresh for next time (stale-while-revalidate).
 // The app itself still needs a live connection to sync records/sites to ODK Central —
 // this only covers the app shell loading, not the sync path.
-const CACHE_NAME = 'tcz-toad-shell-v6';
+const CACHE_NAME = 'tcz-toad-shell-v8';
 const APP_SHELL = ['./', './index.html', './toad-monitoring-app.html', './manifest.json'];
 
 self.addEventListener('install', (event) => {
