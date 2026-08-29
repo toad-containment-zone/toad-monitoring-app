@@ -2401,12 +2401,18 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // default pin icons: Leaflet infers its default icon images' path from its own <script src>,
   // which doesn't exist when the library is pasted inline (no src at all) — divIcon sidesteps
   // that entirely and needs no bundled marker image assets.
-  // Standard OpenStreetMap raster tiles — no API key, acceptable for a small field-crew app's
-  // request volume. Shared by the site picker and the navigation map (a single L.tileLayer
-  // instance can't be added to two maps, so each map builds its own with these).
-  const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  const OSM_ATTRIB = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-  const OFFLINE_CAPTION = 'Showing site positions only — no basemap offline';
+  // Esri World Imagery raster tiles — satellite/aerial, no API key, key-free via
+  // server.arcgisonline.com (the endpoint leaflet-providers and many field apps use). Chosen over
+  // OpenStreetMap because the work is in remote Pilbara/Kimberley country where OSM has almost no
+  // road data, but the imagery shows the actual vehicle tracks crews follow and the waterpoints
+  // themselves. {z}/{y}/{x} order (y before x) is the ArcGIS tiling convention. Shared by the site
+  // picker and the navigation map — a single L.tileLayer instance can't be added to two maps, so
+  // each builds its own from these.
+  const BASEMAP_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  const BASEMAP_ATTRIB = 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community';
+  const BASEMAP_MAX_NATIVE_ZOOM = 18;   // imagery thins out past ~18 in remote WA; Leaflet upscales the last tile rather than showing blank
+  const ONLINE_CAPTION = 'Imagery © Esri, Maxar, Earthstar Geographics';
+  const OFFLINE_CAPTION = 'Showing site positions only — no imagery offline';
 
   let siteMap = null;
   let siteMarkersLayer = null;
@@ -2414,7 +2420,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   let youAreHereMarker = null;
   let youAreHereAccuracyCircle = null;
   let proposedSiteMarker = null;
-  let osmTileLayer = null;
+  let baseTileLayer = null;
   // True only while the proximity-warning map is on screen (opened from checkNewSiteProximity when
   // a known site is too close) — suppresses "Use this site" on every popup, since this mode is
   // purely informational: picking the nearby site here would produce a pointless record
@@ -2510,17 +2516,19 @@ svg.leaflet-image-layer.leaflet-interactive path {
     if (proposedSiteMarker) { siteMap.removeLayer(proposedSiteMarker); proposedSiteMarker = null; }
   }
 
-  // Attaches/detaches the OSM tile layer live — called on open and whenever connectivity changes
-  // while the map is on screen, so a signal drop or return mid-visit updates the map immediately.
+  // Attaches/detaches the imagery tile layer live — called on open and whenever connectivity
+  // changes while the map is on screen, so a signal drop or return mid-visit updates it immediately.
   function setMapTileLayer(online) {
     if (!siteMap) return;
-    if (online && !osmTileLayer) {
-      osmTileLayer = L.tileLayer(OSM_TILE_URL, { maxZoom: 19, attribution: OSM_ATTRIB }).addTo(siteMap);
-    } else if (!online && osmTileLayer) {
-      siteMap.removeLayer(osmTileLayer);
-      osmTileLayer = null;
+    if (online && !baseTileLayer) {
+      baseTileLayer = L.tileLayer(BASEMAP_TILE_URL, {
+        maxZoom: 19, maxNativeZoom: BASEMAP_MAX_NATIVE_ZOOM, attribution: BASEMAP_ATTRIB
+      }).addTo(siteMap);
+    } else if (!online && baseTileLayer) {
+      siteMap.removeLayer(baseTileLayer);
+      baseTileLayer = null;
     }
-    $('mapCaption').textContent = online ? '© OpenStreetMap contributors' : OFFLINE_CAPTION;
+    $('mapCaption').textContent = online ? ONLINE_CAPTION : OFFLINE_CAPTION;
   }
 
   function setInitialMapView(warning) {
@@ -2740,12 +2748,14 @@ svg.leaflet-image-layer.leaflet-interactive path {
   function setNavTileLayer(online) {
     if (!navMap) return;
     if (online && !navTileLayer) {
-      navTileLayer = L.tileLayer(OSM_TILE_URL, { maxZoom: 19, attribution: OSM_ATTRIB }).addTo(navMap);
+      navTileLayer = L.tileLayer(BASEMAP_TILE_URL, {
+        maxZoom: 19, maxNativeZoom: BASEMAP_MAX_NATIVE_ZOOM, attribution: BASEMAP_ATTRIB
+      }).addTo(navMap);
     } else if (!online && navTileLayer) {
       navMap.removeLayer(navTileLayer);
       navTileLayer = null;
     }
-    $('navCaption').textContent = online ? '© OpenStreetMap contributors' : OFFLINE_CAPTION;
+    $('navCaption').textContent = online ? ONLINE_CAPTION : OFFLINE_CAPTION;
   }
 
   function startNavWatch() {

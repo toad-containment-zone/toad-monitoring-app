@@ -33,9 +33,9 @@ There is no build step, package manager, linter, or test suite. "Running" the ap
 the directory statically (e.g. `python3 -m http.server`) and opening `toad-monitoring-app.html` —
 the service worker requires a real HTTP(S) origin (or `localhost`), so a static server is needed to
 test offline/install behaviour. Verify changes by opening it in a browser and exercising the flow.
-Don't just double-click the file open as a `file://` URL: besides the service worker not working
-there, the map view's OpenStreetMap basemap tiles will 403 ("referer is required by tile usage
-policy") since `file://` pages send no `Referer` header — the same static-server setup fixes both.
+Don't just double-click the file open as a `file://` URL: the service worker won't register, and
+the map views' Esri imagery tiles only load over an `http(s)` origin — the same static-server
+setup fixes both.
 
 If you edit `toad_detection_survey.xlsx`, re-validate it rather than trusting the workbook alone:
 ```
@@ -166,9 +166,13 @@ Organized into commented sections in the single `<script>` block (search for `//
    below) — chosen over hand-rolling pan/zoom/projection math because there's no test suite in this
    repo to catch subtle bugs in that kind of code, and Leaflet ships a proper standalone
    `leaflet.js`/`leaflet.css` distributable meant for exactly this kind of inclusion, so vendoring it
-   doesn't require adopting a build step. Tiles are OpenStreetMap's standard free tile servers
-   (`tile.openstreetmap.org`) — no signup, no API key, acceptable under OSM's usage policy for a small
-   field-crew app's request volume. Markers use `L.divIcon()` (small CSS circles, on-brand colors)
+   doesn't require adopting a build step. Tiles are **Esri World Imagery** (satellite/aerial),
+   key-free via `server.arcgisonline.com` (the endpoint `leaflet-providers` uses) — no signup, no
+   API key. Chosen over OpenStreetMap because the work is in remote Pilbara/Kimberley country where
+   OSM has almost no road data, but the imagery shows the actual vehicle tracks crews follow and
+   the waterpoints themselves. `BASEMAP_MAX_NATIVE_ZOOM` (18) caps the request zoom so Leaflet
+   upscales the last real tile past the imagery's resolution rather than showing blank; the URL
+   template is `{z}/{y}/{x}` (y before x, ArcGIS convention). Markers use `L.divIcon()` (small CSS circles, on-brand colors)
    rather than Leaflet's default pin images: Leaflet infers its default icon path from its own
    `<script src>`, which doesn't exist when the library has no `src` at all (pasted inline) — divIcon
    sidesteps that gotcha entirely and needs no bundled marker image assets. **Online/offline is simply
@@ -189,7 +193,7 @@ Organized into commented sections in the single `<script>` block (search for `//
    once — cancelled if the crew pans first (`dragstart`).
 
    Tile image requests aren't special-cased in `sw.js` — its fetch handler already intercepts every
-   GET request with no origin filter (see "PWA shell" below), so OSM tiles get opportunistically
+   GET request with no origin filter (see "PWA shell" below), so imagery tiles get opportunistically
    cached alongside the app shell for free, meaning a recently-viewed area stays visible offline next
    time. There's no eviction, so this cache can grow unbounded over a long deployment — a known,
    deliberately deferred tradeoff, not an oversight; revisit only if storage becomes an actual problem
@@ -226,7 +230,7 @@ Organized into commented sections in the single `<script>` block (search for `//
    shows `#navRecenterBtn`), opens at a ~3 km radius (`toBounds(6000)`), and shows the nearest
    registered site's name + distance in `#navReadout`. It reuses the picker's pure helpers
    (`siteDivIcon`/`youAreHereDivIcon`, `haversineMeters`/`formatDistance`, `allKnownSites`,
-   `siteBadges`/`siteSummaryLabel`) and the shared `OSM_TILE_URL`/`OSM_ATTRIB` constants, plus a
+   `siteBadges`/`siteSummaryLabel`) and the shared `BASEMAP_TILE_URL`/`BASEMAP_ATTRIB` constants, plus a
    parallel `setNavTileLayer()` mirroring `setMapTileLayer()` (a single `L.tileLayer` can't be
    added to two maps). Two gotchas it works around: (a) `navViewReady` gates the watch callback so
    `setView` is never called before the deferred `invalidateSize()`+`fitBounds` runs — otherwise
@@ -310,7 +314,7 @@ worth a quick check before relying on it in the field.
 ### PWA shell (`manifest.json`, `sw.js`, `index.html`)
 
 Identical mechanism to the goanna app — see its CLAUDE.md. `CACHE_NAME` here is
-`tcz-toad-shell-v8`; bump it whenever you change what needs to be cached.
+`tcz-toad-shell-v10`; bump it whenever you change what needs to be cached.
 
 ### Styling
 
