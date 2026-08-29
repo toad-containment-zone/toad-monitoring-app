@@ -162,8 +162,8 @@
     cursor: pointer;
   }
 
-  /* register-site card (home screen) */
-  #registerSiteBtn {
+  /* register-site card + navigate card (home screen) */
+  #registerSiteBtn, #navBtn {
     width: 100%;
     padding: 12px;
     border-radius: 10px;
@@ -174,7 +174,7 @@
     background: none;
     cursor: pointer;
   }
-  #registerSiteBtn:active { transform: scale(0.98); }
+  #registerSiteBtn:active, #navBtn:active { transform: scale(0.98); }
 
   .timer-wrap {
     display: flex;
@@ -621,6 +621,68 @@
   }
   .leaflet-control-zoom a { color: var(--marsh-dark) !important; }
   .leaflet-control-attribution { font-size: 10px !important; }
+
+  /* navigation map (full-screen, live position + all sites) */
+  #navOverlay { background: var(--cream); align-items: stretch; justify-content: stretch; }
+  #navSheet {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  #navTopBar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px;
+    background: var(--marsh);
+    z-index: 2;
+  }
+  #navReadout {
+    flex: 1;
+    min-width: 0;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #navCloseBtn {
+    width: 38px;
+    flex: none;
+    border-radius: 8px;
+    border: none;
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  #navMap { flex: 1; min-height: 0; background: var(--cream); }
+  #navRecenterBtn {
+    position: absolute;
+    right: 12px;
+    bottom: 44px;
+    z-index: 1000;
+    padding: 9px 14px;
+    border-radius: 999px;
+    border: none;
+    background: #fff;
+    color: var(--marsh-dark);
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+    cursor: pointer;
+  }
+  #navCaption {
+    padding: 6px 12px;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--cream);
+    text-align: center;
+    border-top: 1px solid var(--line);
+  }
 
   /* QR scan overlay */
   #scanOverlay { background: rgba(20,18,14,0.92); align-items: center; }
@@ -1374,6 +1436,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div class="hint">Found a new waterpoint but not searching it now? Register it here — the timed search can happen on a later visit.</div>
     </div>
 
+    <div class="card" id="navCard">
+      <h2>Heading to a site?</h2>
+      <button id="navBtn">Navigate to a site</button>
+      <div class="hint">Opens a live map of your position and every registered site — for finding the way in, especially after dark.</div>
+    </div>
+
     <div id="history">
       <h2><span>Survey records</span><span id="countBadge">0</span></h2>
       <div id="historyList">
@@ -1570,6 +1638,19 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <button type="button" id="mapWarningContinueBtn">Register the new site anyway</button>
     </div>
     <div id="mapCaption"></div>
+  </div>
+</div>
+
+<!-- Navigation map: live position + all registered sites -->
+<div class="overlay" id="navOverlay">
+  <div id="navSheet">
+    <div id="navTopBar">
+      <div id="navReadout">Getting your location…</div>
+      <button type="button" id="navCloseBtn" aria-label="Close map" title="Close map">✕</button>
+    </div>
+    <div id="navMap"></div>
+    <button type="button" id="navRecenterBtn" class="hidden">Recentre</button>
+    <div id="navCaption"></div>
   </div>
 </div>
 
@@ -2320,6 +2401,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // default pin icons: Leaflet infers its default icon images' path from its own <script src>,
   // which doesn't exist when the library is pasted inline (no src at all) — divIcon sidesteps
   // that entirely and needs no bundled marker image assets.
+  // Standard OpenStreetMap raster tiles — no API key, acceptable for a small field-crew app's
+  // request volume. Shared by the site picker and the navigation map (a single L.tileLayer
+  // instance can't be added to two maps, so each map builds its own with these).
+  const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const OSM_ATTRIB = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  const OFFLINE_CAPTION = 'Showing site positions only — no basemap offline';
+
   let siteMap = null;
   let siteMarkersLayer = null;
   let siteMarkersById = new Map();
@@ -2427,17 +2515,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
   function setMapTileLayer(online) {
     if (!siteMap) return;
     if (online && !osmTileLayer) {
-      osmTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      }).addTo(siteMap);
+      osmTileLayer = L.tileLayer(OSM_TILE_URL, { maxZoom: 19, attribution: OSM_ATTRIB }).addTo(siteMap);
     } else if (!online && osmTileLayer) {
       siteMap.removeLayer(osmTileLayer);
       osmTileLayer = null;
     }
-    $('mapCaption').textContent = online
-      ? '© OpenStreetMap contributors'
-      : 'Showing site positions only — no basemap offline';
+    $('mapCaption').textContent = online ? '© OpenStreetMap contributors' : OFFLINE_CAPTION;
   }
 
   function setInitialMapView(warning) {
@@ -2571,6 +2654,187 @@ svg.leaflet-image-layer.leaflet-interactive path {
       });
     });
     results.classList.remove('hidden');
+  });
+
+  // ---------- navigation map (Leaflet) ----------
+  // A deliberately separate map instance from the site picker above: this one is opened from the
+  // main screen ("Navigate to a site") to guide the drive-in to a waterpoint, often in the dark.
+  // It runs a persistent watchPosition (not the picker's one-shot sampler), keeps the map centred
+  // on the crew's moving position until they pan by hand, and shows the nearest registered site's
+  // name + distance. It shares the small pure helpers (icons, distance math, allKnownSites) but
+  // none of the picker's finalize/proximity-warning lifecycle, so a submission is never possible
+  // from here.
+  let navMap = null;
+  let navTileLayer = null;
+  let navYouMarker = null;
+  let navAccuracyCircle = null;
+  let navSiteMarkersLayer = null;
+  let navWatchId = null;
+  let navFollow = true;        // recentre on every fix until the crew pans the map themselves
+  let navLastPos = null;       // { lat, lon, accuracy } — most recent watchPosition fix
+  let navWakeLock = null;      // screen wake lock held only while the nav overlay is open
+  // False until the deferred (post-invalidateSize) initial fitBounds has run. Guards the
+  // watchPosition callback: calling setView / adding a tile-triggering layer while the just-shown
+  // container still has zero size makes Leaflet throw "Attempted to load an infinite number of
+  // tiles". A synchronous first geolocation fix (or a mocked one) would otherwise hit that.
+  let navViewReady = false;
+
+  function navSitePopupContent(site) {
+    const badges = siteBadges(site);
+    const coords = (Number.isFinite(site.latitude) && Number.isFinite(site.longitude)) ? site.latitude.toFixed(4) + ', ' + site.longitude.toFixed(4) : '';
+    const dist = navLastPos && Number.isFinite(site.latitude) && Number.isFinite(site.longitude)
+      ? formatDistance(haversineMeters(navLastPos, { lat: site.latitude, lon: site.longitude }))
+      : '';
+    const wrap = document.createElement('div');
+    wrap.className = 'mapPopup';
+    wrap.innerHTML = `
+      <div class="sname">${escXml(siteSummaryLabel(site))}${site.source === 'local' ? ' <span class="spending">(pending sync)</span>' : ''}</div>
+      <div class="smeta">${escXml(coords)}${badges.length ? ' · ' + escXml(badges.join(' · ')) : ''}${dist ? ' · ' + escXml(dist) : ''}</div>`;
+    return wrap;
+  }
+
+  function plotNavSiteMarkers() {
+    if (!navMap) return;
+    if (navSiteMarkersLayer) navSiteMarkersLayer.clearLayers();
+    else navSiteMarkersLayer = L.layerGroup().addTo(navMap);
+    allKnownSites().forEach(site => {
+      if (!Number.isFinite(site.latitude) || !Number.isFinite(site.longitude)) return;
+      try {
+        const marker = L.marker([site.latitude, site.longitude], { icon: siteDivIcon(site.source === 'local') });
+        // Function form: the distance line is recomputed against the live position each time the
+        // popup opens, not frozen at plot time.
+        marker.bindPopup(() => navSitePopupContent(site));
+        marker.addTo(navSiteMarkersLayer);
+      } catch (e) {
+        console.warn('Skipping unplottable site marker', site.id, e);
+      }
+    });
+  }
+
+  function updateNavYouMarker() {
+    if (!navMap || !navLastPos) return;
+    const latlng = [navLastPos.lat, navLastPos.lon];
+    if (navYouMarker) navYouMarker.setLatLng(latlng);
+    else navYouMarker = L.marker(latlng, { icon: youAreHereDivIcon(), zIndexOffset: 1000 }).addTo(navMap);
+    if (Number.isFinite(navLastPos.accuracy)) {
+      if (navAccuracyCircle) navAccuracyCircle.setLatLng(latlng).setRadius(navLastPos.accuracy);
+      else navAccuracyCircle = L.circle(latlng, {
+        radius: navLastPos.accuracy, color: '#59190c', weight: 1, opacity: 0.5, fillOpacity: 0.08
+      }).addTo(navMap);
+    }
+  }
+
+  function updateNavReadout() {
+    if (!navLastPos) return;
+    const sites = allKnownSites().filter(s => Number.isFinite(s.latitude) && Number.isFinite(s.longitude));
+    if (!sites.length) { $('navReadout').textContent = 'No registered sites yet'; return; }
+    let nearest = null, best = Infinity;
+    sites.forEach(s => {
+      const d = haversineMeters(navLastPos, { lat: s.latitude, lon: s.longitude });
+      if (d < best) { best = d; nearest = s; }
+    });
+    const acc = Number.isFinite(navLastPos.accuracy) ? ' · ±' + Math.round(navLastPos.accuracy) + ' m' : '';
+    $('navReadout').textContent = 'Nearest: ' + siteSummaryLabel(nearest) + ' — ' + formatDistance(best) + acc;
+  }
+
+  function setNavTileLayer(online) {
+    if (!navMap) return;
+    if (online && !navTileLayer) {
+      navTileLayer = L.tileLayer(OSM_TILE_URL, { maxZoom: 19, attribution: OSM_ATTRIB }).addTo(navMap);
+    } else if (!online && navTileLayer) {
+      navMap.removeLayer(navTileLayer);
+      navTileLayer = null;
+    }
+    $('navCaption').textContent = online ? '© OpenStreetMap contributors' : OFFLINE_CAPTION;
+  }
+
+  function startNavWatch() {
+    if (!navigator.geolocation) { $('navReadout').textContent = geoErrorMessage({ code: 0 }); return; }
+    stopNavWatch();
+    navWatchId = navigator.geolocation.watchPosition(
+      pos => {
+        navLastPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        // Keep the shared fix fresh too — if the crew starts a search right after navigating in,
+        // the finalize map/list already has a position (the sampler overwrites it otherwise).
+        currentPosition = navLastPos;
+        if (!navViewReady) return;   // openNavMap's deferred setup does the first paint
+        updateNavYouMarker();
+        updateNavReadout();
+        if (navFollow && navMap) navMap.setView([navLastPos.lat, navLastPos.lon]);
+      },
+      err => { if (!navLastPos) $('navReadout').textContent = geoErrorMessage(err); },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 2000 }
+    );
+  }
+
+  function stopNavWatch() {
+    if (navWatchId != null) { navigator.geolocation.clearWatch(navWatchId); navWatchId = null; }
+  }
+
+  async function requestNavWakeLock() {
+    try {
+      if ('wakeLock' in navigator) navWakeLock = await navigator.wakeLock.request('screen');
+    } catch (e) { /* denied / unsupported — not critical */ }
+  }
+
+  function releaseNavWakeLock() {
+    if (navWakeLock) { navWakeLock.release().catch(() => {}); navWakeLock = null; }
+  }
+
+  // navLastPos (or the shared fix, or the fixed West Kimberley fallback) as a {lat, lon} — the
+  // centre for both the synchronous first view and the deferred ~3 km fitBounds.
+  function navSeedLatLon() {
+    return navLastPos || currentPosition || { lat: -18.0, lon: 124.0 };
+  }
+
+  function openNavMap() {
+    $('navOverlay').classList.add('show');
+    navFollow = true;
+    navViewReady = false;
+    if (!navLastPos) $('navReadout').textContent = 'Getting your location…';
+    $('navRecenterBtn').classList.add('hidden');
+    if (!navMap) {
+      navMap = L.map('navMap');
+      navMap.on('dragstart', () => {
+        navFollow = false;
+        $('navRecenterBtn').classList.remove('hidden');
+      });
+    }
+    setNavTileLayer(navigator.onLine);
+    // The container was display:none until now — Leaflet needs a layout pass (invalidateSize)
+    // before any view/tile math is valid, so the first fitBounds + marker paint is deferred to
+    // here. toBounds(6000) is a 6 km box → ~3 km radius around the crew. Re-reads the seed: a fix
+    // may have landed between show and this tick.
+    setTimeout(() => {
+      navMap.invalidateSize();
+      const s = navSeedLatLon();
+      navMap.fitBounds(L.latLng(s.lat, s.lon).toBounds(6000), { padding: [24, 24], maxZoom: 15 });
+      navViewReady = true;
+      plotNavSiteMarkers();
+      updateNavYouMarker();
+      updateNavReadout();
+    }, 0);
+    startNavWatch();
+    requestNavWakeLock();
+  }
+
+  function closeNavMap() {
+    $('navOverlay').classList.remove('show');
+    stopNavWatch();
+    releaseNavWakeLock();
+  }
+
+  $('navBtn').addEventListener('click', openNavMap);
+  $('navCloseBtn').addEventListener('click', closeNavMap);
+  $('navOverlay').addEventListener('click', e => { if (e.target === $('navOverlay')) closeNavMap(); });
+  $('navRecenterBtn').addEventListener('click', () => {
+    navFollow = true;
+    $('navRecenterBtn').classList.add('hidden');
+    if (navLastPos && navMap) navMap.setView([navLastPos.lat, navLastPos.lon]);
+  });
+  // A screen wake lock is dropped when the tab is backgrounded — reacquire on return if still open.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && $('navOverlay').classList.contains('show')) requestNavWakeLock();
   });
 
   // ---------- timer ----------
@@ -2932,8 +3196,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
   }
 
   $('syncNowBtn').addEventListener('click', trySyncAll);
-  window.addEventListener('online', () => { updateStatusBar(); trySyncAll(); if (siteMap) setMapTileLayer(true); });
-  window.addEventListener('offline', () => { updateStatusBar(); if (siteMap) setMapTileLayer(false); });
+  window.addEventListener('online', () => { updateStatusBar(); trySyncAll(); if (siteMap) setMapTileLayer(true); if (navMap) setNavTileLayer(true); });
+  window.addEventListener('offline', () => { updateStatusBar(); if (siteMap) setMapTileLayer(false); if (navMap) setNavTileLayer(false); });
   setInterval(() => { if (navigator.onLine) trySyncAll(); }, 30000);
 
   function updateStatusBar(customText) {

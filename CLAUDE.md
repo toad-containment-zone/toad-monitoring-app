@@ -214,6 +214,26 @@ Organized into commented sections in the single `<script>` block (search for `//
    true: picking the nearby site from here would produce a pointless record
    (`survey_conducted:'no'` + `is_new_site:'no'`, i.e. no new entity and no real survey data) — this
    mode is deliberately informational-only, not an alternate picker.
+
+   **Navigation map (`#navOverlay`, `openNavMap()`).** A separate full-screen Leaflet map, opened
+   from the main screen's "Navigate to a site" card, for driving in to a waterpoint (often in the
+   dark). Deliberately *not* a mode on `openMapPicker()` — that function is tangled up with the
+   finalize/proximity-warning lifecycle (`mapWarningActive`, `pendingSurvey`, popup "Use this
+   site"). The nav map is its own instance (`navMap`) with its own markers and lifecycle; it
+   persists nothing and can't produce a submission. It runs a continuous
+   `navigator.geolocation.watchPosition` (not the picker's one-shot `sampleLocation` sampler),
+   keeps the view centred on the moving fix until the crew pans (`dragstart` → `navFollow=false`,
+   shows `#navRecenterBtn`), opens at a ~3 km radius (`toBounds(6000)`), and shows the nearest
+   registered site's name + distance in `#navReadout`. It reuses the picker's pure helpers
+   (`siteDivIcon`/`youAreHereDivIcon`, `haversineMeters`/`formatDistance`, `allKnownSites`,
+   `siteBadges`/`siteSummaryLabel`) and the shared `OSM_TILE_URL`/`OSM_ATTRIB` constants, plus a
+   parallel `setNavTileLayer()` mirroring `setMapTileLayer()` (a single `L.tileLayer` can't be
+   added to two maps). Two gotchas it works around: (a) `navViewReady` gates the watch callback so
+   `setView` is never called before the deferred `invalidateSize()`+`fitBounds` runs — otherwise
+   Leaflet throws "Attempted to load an infinite number of tiles" on a synchronous first fix; (b)
+   the watch is `clearWatch`ed on close (`closeNavMap()`), and a screen wake lock is held only
+   while the overlay is open. The watch also refreshes the shared `currentPosition` so a search
+   started right after navigating in already has a fix.
 5. **Record lifecycle** — same `pending → synced`/`failed` shape as the goanna app, one record per
    site visit (no multi-record "session" to finish). Field names on the record object are kept
    **identical to the XLSForm survey sheet's `name` column** (no separate `FIELD_MAP` translation
