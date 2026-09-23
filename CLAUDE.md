@@ -244,6 +244,9 @@ Organized into commented sections in the single `<script>` block (search for `//
    layer like the goanna app has) — deliberately, to remove one source of drift between the two
    files; if you rename a field in one, rename it in the other. `survey_conducted` ('yes' on a
    normal timed-search record, 'no' on a registration-only one) follows this same rule.
+   `visit_date`/`visit_time` are **device-local**: `visit_date` comes from `localDate()`, not
+   `toISOString()`, which gave the UTC date, i.e. the previous day for visits before 08:00 WA
+   time. This was fixed 2026-09-23; submissions before that keep the UTC date.
 6. **XForms/OpenRosa submission building** — `buildSubmissionXml()` emits a flat instance (no XML
    groups, matching the goanna app's precedent — this app hand-builds submission XML rather than
    running an XForms engine, so keeping the instance flat means the JS's own branching logic can
@@ -314,7 +317,7 @@ worth a quick check before relying on it in the field.
 ### PWA shell (`manifest.json`, `sw.js`, `index.html`)
 
 Identical mechanism to the goanna app — see its CLAUDE.md. `CACHE_NAME` here is
-`tcz-toad-shell-v10`; bump it whenever you change what needs to be cached.
+`tcz-toad-shell-v11`; bump it whenever you change what needs to be cached.
 
 ### Styling
 

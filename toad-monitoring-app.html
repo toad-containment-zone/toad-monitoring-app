@@ -2304,7 +2304,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       const now = new Date();
       const rec = buildRecord({
         survey_conducted: 'no',
-        visit_date: now.toISOString().slice(0, 10),
+        visit_date: localDate(now),
         visit_time: now.toTimeString().slice(0, 5),
         temperature_c: null,
         toads_access_water: '',
@@ -2855,6 +2855,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
   let people = 1;
   let records = loadRecords();
 
+  // Local calendar date (YYYY-MM-DD) on the device's clock. Not toISOString().slice(0,10), which
+  // is the UTC date — the previous day for anything before 08:00 in WA.
+  function localDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
   function fmt(ms) {
     const total = Math.floor(ms / 1000);
     const m = Math.floor(total / 60).toString().padStart(2, '0');
@@ -2875,7 +2881,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       running = true;
       startTs = Date.now();
       const now = new Date();
-      visitStarted = { date: now.toISOString().slice(0, 10), time: now.toTimeString().slice(0, 5) };
+      visitStarted = { date: localDate(now), time: now.toTimeString().slice(0, 5) };
       $('bigBtn').textContent = 'Stop search';
       $('bigBtn').classList.add('running');
       $('ring').classList.add('running');
